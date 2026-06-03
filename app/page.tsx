@@ -97,6 +97,7 @@ export default function Home() {
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
   const [savedScores, setSavedScores] = useState<SavedScore[]>([]);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [isCameraPreviewOpen, setIsCameraPreviewOpen] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [isWinkMirrored, setIsWinkMirrored] = useState(true);
@@ -838,6 +839,13 @@ export default function Home() {
           </button>
           <button
             type="button"
+            className={`secondary-button ${isCameraPreviewOpen ? "is-active" : ""}`}
+            onClick={() => setIsCameraPreviewOpen((prev) => !prev)}
+          >
+            카메라 보기 {isCameraPreviewOpen ? "끄기" : "켜기"}
+          </button>
+          <button
+            type="button"
             className="secondary-button"
                 onClick={() => setIsLibraryOpen((prev) => !prev)}
                 aria-expanded={isLibraryOpen}
@@ -859,20 +867,24 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="camera-preview compact-panel">
-            <div className="camera-preview-header">
-              <strong>카메라</strong>
-              <span>{isCameraReady ? "인식 중" : "대기 중"}</span>
+          {isCameraPreviewOpen ? (
+            <div className="camera-preview compact-panel">
+              <div className="camera-preview-header">
+                <strong>카메라</strong>
+                <span>{isCameraReady ? "인식 중" : "대기 중"}</span>
+              </div>
+              <div className="camera-preview-frame">
+                <video ref={videoRef} autoPlay muted playsInline className="camera-feed" />
+                {!isCameraReady ? (
+                  <div className="camera-placeholder">
+                    <strong>대기 중</strong>
+                  </div>
+                ) : null}
+              </div>
             </div>
-            <div className="camera-preview-frame">
-              <video ref={videoRef} autoPlay muted playsInline className="camera-feed" />
-              {!isCameraReady ? (
-                <div className="camera-placeholder">
-                  <strong>대기 중</strong>
-                </div>
-              ) : null}
-            </div>
-          </div>
+          ) : (
+            <video ref={videoRef} autoPlay muted playsInline className="camera-feed-hidden" />
+          )}
 
           {isLibraryOpen ? (
             <section className="saved-library" aria-label="저장된 악보 목록">

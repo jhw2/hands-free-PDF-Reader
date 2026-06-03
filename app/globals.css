@@ -342,6 +342,14 @@ p {
   display: block;
 }
 
+.camera-feed-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .saved-score-list {
   list-style: none;
   margin: 0;
