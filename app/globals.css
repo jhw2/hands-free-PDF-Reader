@@ -1,0 +1,254 @@
+:root {
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #111419;
+  color: #f5f7fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: #0f131a;
+  overflow: hidden;
+}
+
+.app-shell {
+  min-height: 100vh;
+  height: 100vh;
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+header {
+  flex-shrink: 0;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: clamp(2rem, 3vw, 2.5rem);
+}
+
+p {
+  margin: 0;
+  color: #b0b7c3;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.file-label {
+  background: #1c2533;
+  border: 1px solid #2a3445;
+  border-radius: 10px;
+  padding: 12px 16px;
+  cursor: pointer;
+}
+
+.file-label input {
+  display: none;
+}
+
+.secondary-button {
+  appearance: none;
+  border: 1px solid #2a3445;
+  background: #202a39;
+  color: #f5f7fb;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.secondary-button:hover:enabled {
+  background: #29364a;
+  border-color: #3b4d68;
+}
+
+.secondary-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.camera-toggle {
+  appearance: none;
+  border: 1px solid #2a3445;
+  background: #1b2431;
+  color: #f5f7fb;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.camera-toggle span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #2a3445;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.camera-toggle.is-on {
+  background: #183227;
+  border-color: #2d6a4f;
+}
+
+.camera-toggle.is-on span {
+  background: #2d6a4f;
+}
+
+.camera-toggle.is-off {
+  background: #2a2020;
+  border-color: #6b3a3a;
+}
+
+.camera-toggle.is-off span {
+  background: #6b3a3a;
+}
+
+.status {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.page-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.page-buttons button {
+  appearance: none;
+  border: 1px solid #2a3445;
+  background: #202a39;
+  color: #f5f7fb;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.page-buttons button:hover:enabled {
+  background: #29364a;
+  border-color: #3b4d68;
+}
+
+.page-buttons button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.saved-library {
+  flex-shrink: 0;
+  padding: 14px;
+  border: 1px solid #2a3445;
+  border-radius: 16px;
+  background: #161d29;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.library-empty {
+  color: #b0b7c3;
+}
+
+.saved-score-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.saved-score-item {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.saved-score-open {
+  flex: 1;
+  appearance: none;
+  border: 1px solid #2a3445;
+  background: #202a39;
+  color: #f5f7fb;
+  border-radius: 12px;
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+}
+
+.saved-score-open span {
+  color: #b0b7c3;
+  font-size: 0.92rem;
+}
+
+.saved-score-delete {
+  appearance: none;
+  border: 1px solid #6b3a3a;
+  background: #2a2020;
+  color: #ffd6d6;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pdf-viewer {
+  background: #161c27;
+  border: 1px solid #2a3445;
+  border-radius: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+}
+
+.pdf-viewer canvas {
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.camera-feed-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
