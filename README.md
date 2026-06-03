@@ -1,4 +1,4 @@
-# Motion PDF Reader
+# Hands Free PDF Reader
 
 오른쪽/왼쪽 고개 회전으로 PDF 페이지를 넘길 수 있는 브라우저 기반 뷰어 예제입니다.
 

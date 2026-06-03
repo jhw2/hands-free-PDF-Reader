@@ -1,8 +1,8 @@
 :root {
-  color-scheme: light;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #111419;
-  color: #f5f7fb;
+  color-scheme: dark;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #0d121b;
+  color: #f4f7fb;
 }
 
 * {
@@ -12,230 +12,213 @@
 html,
 body {
   margin: 0;
-  height: 100%;
+  min-height: 100%;
 }
 
 body {
-  background: #0f131a;
-  overflow: hidden;
+  background:
+    radial-gradient(circle at top, rgba(109, 140, 196, 0.12), transparent 30%),
+    #0d121b;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
 }
 
 .app-shell {
   min-height: 100vh;
-  height: 100vh;
-  padding: 20px;
-  max-width: 1400px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-header {
-  flex-shrink: 0;
-}
-
-h1 {
-  margin: 0 0 8px;
-  font-size: clamp(2rem, 3vw, 2.5rem);
-}
-
-p {
-  margin: 0;
-  color: #b0b7c3;
-}
-
-.controls {
-  display: flex;
-  flex-wrap: wrap;
+  padding: 16px;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
   gap: 12px;
-  align-items: center;
-  flex-shrink: 0;
 }
 
-.file-label {
-  background: #1c2533;
-  border: 1px solid #2a3445;
-  border-radius: 10px;
-  padding: 12px 16px;
+.topbar,
+.status-strip,
+.viewer-card,
+.panel-card,
+.camera-preview,
+.saved-library,
+.permission-help {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  background: rgba(17, 24, 36, 0.92);
+}
+
+.topbar {
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+
+.brand-block h1 {
+  font-size: 1.25rem;
+}
+
+.brand-block p {
+  margin-top: 4px;
+  color: #9aabbe;
+  font-size: 0.9rem;
+}
+
+.topbar-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.file-label,
+.camera-toggle,
+.secondary-button,
+.page-buttons button,
+.saved-score-open,
+.saved-score-delete {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: #212c3d;
+  color: #f4f7fb;
+  transition: background 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+}
+
+.file-label,
+.camera-toggle,
+.compact-action.secondary-button {
+  height: 46px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .file-label input {
   display: none;
 }
 
-.secondary-button {
-  appearance: none;
-  border: 1px solid #2a3445;
-  background: #202a39;
-  color: #f5f7fb;
-  border-radius: 10px;
-  padding: 12px 16px;
-  font: inherit;
-  cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
-}
-
-.secondary-button:hover:enabled {
-  background: #29364a;
-  border-color: #3b4d68;
-}
-
-.secondary-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.camera-toggle {
-  appearance: none;
-  border: 1px solid #2a3445;
-  background: #1b2431;
-  color: #f5f7fb;
-  border-radius: 10px;
-  padding: 12px 16px;
-  font: inherit;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  transition: background 0.2s ease, border-color 0.2s ease;
-}
-
 .camera-toggle span {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 48px;
-  padding: 4px 8px;
+  padding: 4px 10px;
   border-radius: 999px;
-  background: #2a3445;
-  font-size: 0.85rem;
-  font-weight: 600;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 0.82rem;
 }
 
 .camera-toggle.is-on {
-  background: #183227;
-  border-color: #2d6a4f;
-}
-
-.camera-toggle.is-on span {
-  background: #2d6a4f;
+  background: #1e3a2b;
+  border-color: rgba(89, 175, 119, 0.5);
 }
 
 .camera-toggle.is-off {
-  background: #2a2020;
-  border-color: #6b3a3a;
+  background: #212c3d;
 }
 
-.camera-toggle.is-off span {
-  background: #6b3a3a;
+.status-strip {
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.status {
+.status-chip {
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.status-chip span {
+  display: block;
+  margin-bottom: 4px;
+  color: #92a3b8;
+  font-size: 0.78rem;
+}
+
+.status-chip strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+}
+
+.permission-help {
+  padding: 10px 12px;
+  color: #ffd8d8;
+  background: rgba(89, 35, 35, 0.88);
+}
+
+.workspace-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 12px;
+}
+
+.viewer-card {
+  min-height: 0;
+  padding: 12px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 10px;
+}
+
+.viewer-toolbar {
   display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
   align-items: center;
+}
+
+.viewer-toolbar h2,
+.compact-panel h2 {
+  font-size: 1rem;
 }
 
 .page-buttons {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
-.page-buttons button {
-  appearance: none;
-  border: 1px solid #2a3445;
-  background: #202a39;
-  color: #f5f7fb;
-  border-radius: 10px;
-  padding: 12px 16px;
-  font: inherit;
+.secondary-button,
+.page-buttons button,
+.saved-score-open,
+.saved-score-delete {
+  padding: 11px 14px;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
 }
 
-.page-buttons button:hover:enabled {
-  background: #29364a;
-  border-color: #3b4d68;
+.secondary-button.is-active {
+  border-color: rgba(109, 140, 196, 0.6);
+  background: #25354b;
 }
 
+.secondary-button:disabled,
 .page-buttons button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 
-.saved-library {
-  flex-shrink: 0;
-  padding: 14px;
-  border: 1px solid #2a3445;
-  border-radius: 16px;
-  background: #161d29;
-  max-height: 220px;
-  overflow: auto;
-}
-
-.library-empty {
-  color: #b0b7c3;
-}
-
-.saved-score-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 10px;
-}
-
-.saved-score-item {
-  display: flex;
-  gap: 10px;
-  align-items: stretch;
-}
-
-.saved-score-open {
-  flex: 1;
-  appearance: none;
-  border: 1px solid #2a3445;
-  background: #202a39;
-  color: #f5f7fb;
-  border-radius: 12px;
-  padding: 12px 14px;
-  text-align: left;
-  cursor: pointer;
-  display: grid;
-  gap: 4px;
-}
-
-.saved-score-open span {
-  color: #b0b7c3;
-  font-size: 0.92rem;
-}
-
-.saved-score-delete {
-  appearance: none;
-  border: 1px solid #6b3a3a;
-  background: #2a2020;
-  color: #ffd6d6;
-  border-radius: 12px;
-  padding: 12px 14px;
-  font: inherit;
-  cursor: pointer;
-}
-
 .pdf-viewer {
-  background: #161c27;
-  border: 1px solid #2a3445;
-  border-radius: 16px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  overflow: hidden;
-  flex: 1;
+  position: relative;
   min-height: 0;
-  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #0a0f16;
 }
 
 .pdf-viewer canvas {
@@ -245,10 +228,190 @@ p {
   max-height: 100%;
 }
 
-.camera-feed-hidden {
+.is-focus-mode {
+  padding: 0;
+  gap: 0;
+  background: #05080d;
+}
+
+.is-focus-mode .topbar,
+.is-focus-mode .status-strip,
+.is-focus-mode .permission-help,
+.is-focus-mode .side-panel,
+.is-focus-mode .viewer-toolbar h2 {
+  display: none;
+}
+
+.is-focus-mode .workspace-grid {
+  grid-template-columns: 1fr;
+  gap: 0;
+  min-height: 100vh;
+}
+
+.is-focus-mode .viewer-card {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: #05080d;
+}
+
+.is-focus-mode .viewer-toolbar {
   position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+  padding: 0;
+  background: transparent;
+}
+
+.is-focus-mode .viewer-toolbar .page-buttons {
+  justify-content: flex-end;
+}
+
+.is-focus-mode .viewer-toolbar .page-buttons button {
+  background: rgba(17, 24, 36, 0.82);
+  backdrop-filter: blur(8px);
+}
+
+.is-focus-mode .pdf-viewer {
+  border-radius: 0;
+  min-height: 100vh;
+  background: #05080d;
+}
+
+.empty-viewer,
+.camera-placeholder {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 16px;
+  background: rgba(10, 15, 22, 0.72);
+}
+
+.side-panel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 12px;
+  align-content: start;
+}
+
+.compact-panel,
+.saved-library {
+  padding: 12px;
+}
+
+.option-buttons {
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.camera-preview {
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.camera-preview-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.camera-preview-header span {
+  color: #92a3b8;
+  font-size: 0.82rem;
+}
+
+.camera-preview-frame {
+  position: relative;
+  min-height: 180px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #0a0f16;
+}
+
+.camera-feed {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  display: block;
+}
+
+.saved-score-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.saved-score-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.saved-score-open {
+  text-align: left;
+}
+
+.saved-score-open span,
+.library-empty {
+  display: block;
+  margin-top: 4px;
+  color: #92a3b8;
+  font-size: 0.88rem;
+}
+
+.saved-score-delete {
+  background: #45282b;
+  color: #ffd8d8;
+}
+
+@media (max-width: 960px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .side-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto;
+  }
+
+  .saved-library {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: 12px;
+  }
+
+  .topbar,
+  .viewer-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .status-strip,
+  .side-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar-actions {
+    width: 100%;
+  }
+
+  .file-label,
+  .camera-toggle,
+  .compact-action.secondary-button {
+    width: 100%;
+    justify-content: center;
+  }
 }
