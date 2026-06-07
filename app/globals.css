@@ -419,6 +419,49 @@ p {
   gap: 8px;
 }
 
+.wink-debug-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.wink-debug-status {
+  color: #dff0ff;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.wink-debug-detail {
+  color: #9fb0c6;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.wink-debug-grid {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.wink-debug-grid div {
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.wink-debug-grid dt {
+  color: #92a3b8;
+  font-size: 0.72rem;
+}
+
+.wink-debug-grid dd {
+  margin: 4px 0 0;
+  color: #f4f7fb;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
 .camera-feed-hidden {
   position: fixed;
   top: -9999px;

@@ -11,27 +11,42 @@ const SAVED_SCORES_KEY = "saved-scores";
 const WINK_MIRROR_KEY = "wink-mirror";
 const MOTION_DETECTION_ENABLED_KEY = "motion-detection-enabled";
 const CALIBRATION_SAMPLE_TARGET = 18;
-const WINK_HOLD_DURATION_MS = 300;
+const WINK_HOLD_DURATION_MS = 260;
 const PAGE_TURN_COOLDOWN_MS = 1200;
-const WINK_GRACE_DURATION_MS = 260;
-const EYE_RATIO_SMOOTHING_ALPHA = 0.35;
-const WINK_START_CLOSED_RATIO_THRESHOLD = 0.9;
-const WINK_START_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.66;
-const WINK_START_CLOSURE_GAP_THRESHOLD = 0.06;
-const WINK_CONTINUE_CLOSED_RATIO_THRESHOLD = 1;
-const WINK_CONTINUE_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.52;
-const WINK_CONTINUE_CLOSURE_GAP_THRESHOLD = 0.015;
-const WINK_MIN_PEAK_STRENGTH = 0.12;
+const EYE_RATIO_SMOOTHING_ALPHA = 0.7;
+const WINK_START_CLOSED_RATIO_THRESHOLD = 0.78;
+const WINK_START_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.82;
+const WINK_START_CLOSURE_GAP_THRESHOLD = 0.16;
+const WINK_CONTINUE_CLOSED_RATIO_THRESHOLD = 0.84;
+const WINK_CONTINUE_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.72;
+const WINK_CONTINUE_CLOSURE_GAP_THRESHOLD = 0.12;
+const WINK_MIN_PEAK_STRENGTH = 0.18;
 const BOTH_EYES_CLOSED_RATIO_THRESHOLD = 0.86;
 const BOTH_EYES_CLOSED_COMBINED_THRESHOLD = 1.72;
-const RECOVERY_OPEN_RATIO_THRESHOLD = 0.82;
-const EYE_VISIBILITY_BALANCE_THRESHOLD = 0.58;
-const EYE_CENTER_BALANCE_THRESHOLD = 0.54;
+const RECOVERY_OPEN_RATIO_THRESHOLD = 0.84;
+const RECOVERY_OPEN_RATIO_FAST_THRESHOLD = 0.78;
+const EYE_VISIBILITY_BALANCE_THRESHOLD = 0.5;
+const EYE_CENTER_BALANCE_THRESHOLD = 0.46;
 const CALIBRATION_FORWARD_TILT_MAX = 0.1;
 const CALIBRATION_FORWARD_NOSE_X_MAX = 0.16;
 const CALIBRATION_FORWARD_NOSE_Y_MAX = 0.38;
 const CALIBRATION_EYE_DISTANCE_MIN = 0.035;
-const FORWARD_STABLE_FRAME_TARGET = 4;
+const ACTIVE_FORWARD_TILT_MAX = 0.11;
+const ACTIVE_FORWARD_NOSE_X_MAX = 0.14;
+const ACTIVE_FORWARD_NOSE_Y_MAX = 0.4;
+const ACTIVE_FORWARD_EYE_DISTANCE_MIN = 0.04;
+const ACTIVE_FORWARD_EYE_WIDTH_BALANCE_MIN = 0.62;
+const ACTIVE_FORWARD_EYE_CENTER_BALANCE_MIN = 0.58;
+const FORWARD_STABLE_FRAME_TARGET = 2;
+const REARM_OPEN_FRAME_TARGET = 3;
+const BOTH_EYES_SIMILARITY_GAP_THRESHOLD = 0.025;
+const BOTH_EYES_PARTIAL_CLOSED_THRESHOLD = 0.82;
+const BOTH_EYES_DOMINANCE_STRENGTH_MAX = 0.1;
+const BOTH_EYES_BLINK_RATIO_THRESHOLD = 0.9;
+const BOTH_EYES_BLINK_SIMILARITY_GAP_MAX = 0.12;
+const BOTH_EYES_BLINK_DOMINANCE_MAX = 0.2;
+const WINK_STABLE_FRAME_TARGET = 2;
+const WINK_MISSING_FRAME_TOLERANCE = 1;
 
 type SavedScore = {
   id: string;
@@ -46,6 +61,35 @@ type SessionState = {
   fileName: string | null;
   currentPage: number;
   savedScoreId: string | null;
+};
+
+type WinkEye = "left" | "right" | "none";
+type WinkDirection = "left" | "right" | "none";
+type WinkPhase = "idle" | "tracking" | "waiting-open";
+
+type WinkDetectionState = {
+  phase: WinkPhase;
+  eye: WinkEye;
+  direction: WinkDirection;
+  startedAt: number | null;
+  peakStrength: number;
+  stableFrames: number;
+  missingFrames: number;
+  openFrames: number;
+};
+
+type WinkDebugState = {
+  status: string;
+  detail: string;
+  leftNormalized: number | null;
+  rightNormalized: number | null;
+  leftStrength: number;
+  rightStrength: number;
+  forwardStableFrames: number;
+  trackingPhase: WinkPhase;
+  trackingEye: WinkEye;
+  stableFrames: number;
+  openFrames: number;
 };
 
 declare global {
@@ -130,6 +174,19 @@ export default function Home() {
   const [isCalibrating, setIsCalibrating] = useState(false);
   const [calibrationProgress, setCalibrationProgress] = useState(0);
   const [hasCalibration, setHasCalibration] = useState(false);
+  const [winkDebug, setWinkDebug] = useState<WinkDebugState>({
+    status: "대기 중",
+    detail: "모션 감지를 켜면 실패 이유가 여기에 표시됩니다.",
+    leftNormalized: null,
+    rightNormalized: null,
+    leftStrength: 0,
+    rightStrength: 0,
+    forwardStableFrames: 0,
+    trackingPhase: "idle",
+    trackingEye: "none",
+    stableFrames: 0,
+    openFrames: 0,
+  });
 
   const lastSwitchTimeRef = useRef<number>(0);
   const isRenderingRef = useRef(false);
@@ -142,11 +199,16 @@ export default function Home() {
   const currentFileNameRef = useRef<string | null>(null);
   const currentPdfBlobRef = useRef<Blob | null>(null);
   const currentSavedScoreIdRef = useRef<string | null>(null);
-  const winkCandidateRef = useRef<"left" | "right" | "none">("none");
-  const winkHoldStartRef = useRef<number | null>(null);
-  const winkLastSeenRef = useRef<number | null>(null);
-  const winkPeakStrengthRef = useRef(0);
-  const gestureArmedRef = useRef(true);
+  const winkStateRef = useRef<WinkDetectionState>({
+    phase: "idle",
+    eye: "none",
+    direction: "none",
+    startedAt: null,
+    peakStrength: 0,
+    stableFrames: 0,
+    missingFrames: 0,
+    openFrames: 0,
+  });
   const gestureTextRef = useRef("PDF를 먼저 불러오면 다음 단계가 쉬워집니다.");
   const calibrationActiveRef = useRef(false);
   const calibrationFramesRef = useRef(0);
@@ -177,6 +239,26 @@ export default function Home() {
 
     gestureTextRef.current = nextText;
     setGestureText(nextText);
+  };
+
+  const resetWinkState = (phase: WinkPhase = "idle") => {
+    winkStateRef.current = {
+      phase,
+      eye: "none",
+      direction: "none",
+      startedAt: null,
+      peakStrength: 0,
+      stableFrames: 0,
+      missingFrames: 0,
+      openFrames: 0,
+    };
+  };
+
+  const updateWinkDebug = (next: Partial<WinkDebugState>) => {
+    setWinkDebug((prev) => ({
+      ...prev,
+      ...next,
+    }));
   };
 
   const saveSessionState = async (overrides?: Partial<SessionState>) => {
@@ -351,14 +433,26 @@ export default function Home() {
       rightEyeOpenRef.current = 0.24;
       smoothedLeftEyeRef.current = null;
       smoothedRightEyeRef.current = null;
+      resetWinkState();
       setCalibrationProgress(0);
       setHasCalibration(false);
     };
 
     const stopCamera = async () => {
-      winkCandidateRef.current = "none";
-      winkLastSeenRef.current = null;
-      gestureArmedRef.current = true;
+      resetWinkState();
+      updateWinkDebug({
+        status: "모션 감지 꺼짐",
+        detail: "카메라가 멈춰 있어 윙크를 검사하지 않습니다.",
+        leftNormalized: null,
+        rightNormalized: null,
+        leftStrength: 0,
+        rightStrength: 0,
+        forwardStableFrames: 0,
+        trackingPhase: "idle",
+        trackingEye: "none",
+        stableFrames: 0,
+        openFrames: 0,
+      });
       setIsCalibrating(false);
       resetCalibration();
 
@@ -416,16 +510,30 @@ export default function Home() {
         resetCalibration();
         setIsCalibrating(true);
         calibrationActiveRef.current = true;
+        updateWinkDebug({
+          status: "보정 시작",
+          detail: "정면을 보고 눈 기준값을 수집하는 중입니다.",
+        });
         updateGestureText("정면을 1초만 봐 주세요");
 
         faceMesh.onResults((results: Results) => {
           if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
+            updateWinkDebug({
+              status: "실패: 얼굴 없음",
+              detail: "얼굴 랜드마크를 찾지 못해서 윙크를 검사할 수 없습니다.",
+              leftNormalized: null,
+              rightNormalized: null,
+              leftStrength: 0,
+              rightStrength: 0,
+              forwardStableFrames: 0,
+              trackingPhase: "idle",
+              trackingEye: "none",
+              stableFrames: 0,
+              openFrames: 0,
+            });
             updateGestureText("얼굴을 인식할 수 없음");
             forwardStableFramesRef.current = 0;
-            winkCandidateRef.current = "none";
-            winkHoldStartRef.current = null;
-            winkPeakStrengthRef.current = 0;
-            gestureArmedRef.current = true;
+            resetWinkState();
             return;
           }
 
@@ -442,7 +550,7 @@ export default function Home() {
           ]);
           const leftEyeRatio = getSmoothedEyeRatio(smoothedLeftEyeRef, rawLeftEyeRatio);
           const rightEyeRatio = getSmoothedEyeRatio(smoothedRightEyeRef, rawRightEyeRatio);
-          const isFacingForward = isFaceFacingForward(landmarks);
+          const isForwardEnoughForWink = isFaceForwardEnoughForWink(landmarks);
           const isForwardEnoughForCalibration = isFaceForwardEnoughForCalibration(landmarks);
           const leftOpenBaseline = Math.max(leftEyeOpenRef.current, 0.0001);
           const rightOpenBaseline = Math.max(rightEyeOpenRef.current, 0.0001);
@@ -452,9 +560,42 @@ export default function Home() {
           const rightClosure = 1 - rightNormalized;
           const leftStrength = leftClosure - rightClosure;
           const rightStrength = rightClosure - leftClosure;
+          const normalizedGap = Math.abs(leftNormalized - rightNormalized);
+          const dominantWinkStrength = Math.max(leftStrength, rightStrength);
+          const isOneEyeClearlyDominant = dominantWinkStrength > BOTH_EYES_DOMINANCE_STRENGTH_MAX;
+          const bothEyesSimilarClosure = normalizedGap <= BOTH_EYES_SIMILARITY_GAP_THRESHOLD;
+          const areBothEyesPartiallyClosed =
+            leftNormalized < BOTH_EYES_PARTIAL_CLOSED_THRESHOLD &&
+            rightNormalized < BOTH_EYES_PARTIAL_CLOSED_THRESHOLD &&
+            bothEyesSimilarClosure &&
+            !isOneEyeClearlyDominant;
+          const areBothEyesBlinking =
+            leftNormalized < BOTH_EYES_BLINK_RATIO_THRESHOLD &&
+            rightNormalized < BOTH_EYES_BLINK_RATIO_THRESHOLD &&
+            normalizedGap <= BOTH_EYES_BLINK_SIMILARITY_GAP_MAX &&
+            dominantWinkStrength <= BOTH_EYES_BLINK_DOMINANCE_MAX;
+          const winkState = winkStateRef.current;
+          const winkSignal = computeWink(leftEyeRatio, rightEyeRatio, winkState.eye);
+          const hasStrongWinkSignal = winkSignal.eye !== "none";
+
+          updateWinkDebug({
+            leftNormalized,
+            rightNormalized,
+            leftStrength,
+              rightStrength,
+              forwardStableFrames: forwardStableFramesRef.current,
+              trackingPhase: winkState.phase,
+              trackingEye: winkState.eye,
+              stableFrames: winkState.stableFrames,
+            openFrames: winkState.openFrames,
+          });
 
           if (calibrationActiveRef.current) {
             if (!isForwardEnoughForCalibration) {
+              updateWinkDebug({
+                status: "보정 실패",
+                detail: "보정 중에는 얼굴을 더 정면으로 맞춰야 합니다.",
+              });
               updateGestureText("얼굴을 조금만 카메라 쪽으로");
               return;
             }
@@ -468,6 +609,10 @@ export default function Home() {
               Math.round((calibrationFramesRef.current / CALIBRATION_SAMPLE_TARGET) * 100)
             );
             setCalibrationProgress(nextProgress);
+            updateWinkDebug({
+              status: `보정 중 ${nextProgress}%`,
+              detail: "이 단계에서는 윙크 감지를 하지 않고 기본 눈 뜸 기준값만 잡습니다.",
+            });
             updateGestureText(`보정 중 ${nextProgress}%`);
 
             if (calibrationFramesRef.current >= CALIBRATION_SAMPLE_TARGET) {
@@ -476,114 +621,248 @@ export default function Home() {
               calibrationActiveRef.current = false;
               setIsCalibrating(false);
               setHasCalibration(true);
+              updateWinkDebug({
+                status: "보정 완료",
+                detail: "이제 한쪽 눈 감기 조건을 검사할 준비가 됐습니다.",
+              });
               updateGestureText("보정 완료");
             }
             return;
           }
 
-          if (isFacingForward) {
+          if (isForwardEnoughForWink) {
             forwardStableFramesRef.current = Math.min(forwardStableFramesRef.current + 1, FORWARD_STABLE_FRAME_TARGET);
           } else {
             forwardStableFramesRef.current = 0;
           }
 
-          const eyesRecovered = areEyesRecovered(leftEyeRatio, rightEyeRatio);
-          if (eyesRecovered && forwardStableFramesRef.current >= FORWARD_STABLE_FRAME_TARGET) {
-            gestureArmedRef.current = true;
-          }
-
-          if (areBothEyesClosed(leftEyeRatio, rightEyeRatio)) {
-            updateGestureText("양쪽 눈 감김으로 인식 중");
+          if (
+            (!hasStrongWinkSignal && areBothEyesBlinking) ||
+            (!hasStrongWinkSignal && areBothEyesClosed(leftEyeRatio, rightEyeRatio, dominantWinkStrength, normalizedGap)) ||
+            (!hasStrongWinkSignal && areBothEyesPartiallyClosed)
+          ) {
+            updateWinkDebug({
+              status: "실패: 양쪽 눈 감김",
+              detail: hasStrongWinkSignal
+                ? "두 눈이 함께 닫힌 상태로 보여 안전하게 양쪽 눈 감김으로 막았습니다."
+                : `두 눈이 모두 닫힘 범위에 들어왔고 비율 차이(${normalizedGap.toFixed(2)})와 한쪽 눈 우세 강도(${dominantWinkStrength.toFixed(2)})가 모두 양눈 깜빡임 쪽에 가깝습니다.`,
+              forwardStableFrames: forwardStableFramesRef.current,
+              trackingPhase: winkState.phase,
+              trackingEye: winkState.eye,
+              stableFrames: winkState.stableFrames,
+              openFrames: winkState.openFrames,
+            });
+            updateGestureText(winkState.phase === "waiting-open" ? "눈을 다시 떠 주세요" : "양쪽 눈 감김으로 인식 중");
             forwardStableFramesRef.current = 0;
-            winkCandidateRef.current = "none";
-            winkHoldStartRef.current = null;
-            winkLastSeenRef.current = null;
-            winkPeakStrengthRef.current = 0;
+            if (winkState.phase !== "waiting-open") {
+              resetWinkState();
+            }
             return;
           }
 
           if (!areBothEyesClearlyVisible(landmarks)) {
+            updateWinkDebug({
+              status: "실패: 눈 가시성 부족",
+              detail: "양쪽 눈 크기나 위치 균형이 많이 달라 보여 정면 윙크로 확신하지 못했습니다.",
+              forwardStableFrames: forwardStableFramesRef.current,
+              trackingPhase: winkState.phase,
+              trackingEye: winkState.eye,
+              stableFrames: winkState.stableFrames,
+              openFrames: winkState.openFrames,
+            });
             updateGestureText("양쪽 눈이 보이게 정면을 봐 주세요");
             forwardStableFramesRef.current = 0;
-            winkCandidateRef.current = "none";
-            winkHoldStartRef.current = null;
-            winkLastSeenRef.current = null;
-            winkPeakStrengthRef.current = 0;
+            if (winkStateRef.current.phase !== "waiting-open") {
+              resetWinkState();
+            }
             return;
           }
 
-          if (!isFacingForward) {
+          if (!isForwardEnoughForWink) {
+            updateWinkDebug({
+              status: "실패: 정면 아님",
+              detail: "고개 회전이나 좌우 비대칭이 커서, 정면 윙크로 보기엔 너무 불안정합니다.",
+              forwardStableFrames: forwardStableFramesRef.current,
+              trackingPhase: winkState.phase,
+              trackingEye: winkState.eye,
+              stableFrames: winkState.stableFrames,
+              openFrames: winkState.openFrames,
+            });
             updateGestureText("고개를 정면으로 맞춰 주세요");
-            winkCandidateRef.current = "none";
-            winkHoldStartRef.current = null;
-            winkLastSeenRef.current = null;
-            winkPeakStrengthRef.current = 0;
+            if (winkStateRef.current.phase !== "waiting-open") {
+              resetWinkState();
+            }
             return;
           }
 
           if (forwardStableFramesRef.current < FORWARD_STABLE_FRAME_TARGET) {
+            updateWinkDebug({
+              status: "실패: 정면 유지 부족",
+              detail: "정면 상태가 아직 충분한 프레임 수만큼 이어지지 않았습니다.",
+              forwardStableFrames: forwardStableFramesRef.current,
+              trackingPhase: winkState.phase,
+              trackingEye: winkState.eye,
+              stableFrames: winkState.stableFrames,
+              openFrames: winkState.openFrames,
+            });
             updateGestureText("정면을 잠깐 유지해 주세요");
-            winkCandidateRef.current = "none";
-            winkHoldStartRef.current = null;
-            winkLastSeenRef.current = null;
-            winkPeakStrengthRef.current = 0;
+            if (winkStateRef.current.phase !== "waiting-open") {
+              resetWinkState();
+            }
             return;
           }
 
-          const winkSignal = computeWink(leftEyeRatio, rightEyeRatio, winkCandidateRef.current);
+          const eyesRecovered = areEyesRecovered(leftEyeRatio, rightEyeRatio);
+          const eyesRecoveredFast = areEyesRecoveredFast(rawLeftEyeRatio, rawRightEyeRatio);
+          if (winkState.phase === "waiting-open") {
+            if (eyesRecovered || eyesRecoveredFast) {
+              winkState.openFrames = Math.min(winkState.openFrames + 1, REARM_OPEN_FRAME_TARGET);
+            } else {
+              winkState.openFrames = 0;
+            }
+
+            if (winkState.openFrames >= REARM_OPEN_FRAME_TARGET) {
+              resetWinkState();
+              updateWinkDebug({
+                status: "재무장 완료",
+                detail: "눈이 다시 열린 것으로 확인되어 다음 윙크를 받을 수 있습니다.",
+                trackingPhase: "idle",
+                trackingEye: "none",
+                stableFrames: 0,
+                openFrames: 0,
+              });
+              updateGestureText("다시 윙크할 수 있습니다");
+            } else {
+              updateWinkDebug({
+                status: "실패: 아직 재무장 중",
+                detail: `재무장 확인 중입니다. 열린 눈 기준은 부드러운 값 ${RECOVERY_OPEN_RATIO_THRESHOLD.toFixed(2)} 또는 즉시 값 ${RECOVERY_OPEN_RATIO_FAST_THRESHOLD.toFixed(2)} 이상입니다.`,
+                trackingPhase: winkState.phase,
+                trackingEye: winkState.eye,
+                stableFrames: winkState.stableFrames,
+                openFrames: winkState.openFrames,
+              });
+              updateGestureText("눈을 다시 떠 주세요");
+            }
+            return;
+          }
+
           const now = performance.now();
 
           if (winkSignal.eye === "none") {
-            const withinGraceWindow =
-              winkCandidateRef.current !== "none" &&
-              winkLastSeenRef.current !== null &&
-              now - winkLastSeenRef.current <= WINK_GRACE_DURATION_MS;
-
-            if (withinGraceWindow) {
-              updateGestureText("윙크 인식 중");
-              return;
+            if (winkState.phase === "tracking") {
+              winkState.missingFrames += 1;
+              if (winkState.missingFrames > WINK_MISSING_FRAME_TOLERANCE) {
+                resetWinkState();
+                updateWinkDebug({
+                  status: "실패: 유지 시간 부족",
+                  detail: "한쪽 눈 감기가 잠깐 보였지만 충분히 오래 유지되지 않았습니다.",
+                  trackingPhase: "idle",
+                  trackingEye: "none",
+                  stableFrames: 0,
+                  openFrames: 0,
+                });
+                updateGestureText("짧게 한쪽 윙크");
+              } else {
+                const holdDuration = winkState.startedAt ? now - winkState.startedAt : 0;
+                updateWinkDebug({
+                  status: "확인 중",
+                  detail: "한쪽 눈 감기를 추적 중이지만 아직 프레임이 더 필요합니다.",
+                  trackingPhase: winkState.phase,
+                  trackingEye: winkState.eye,
+                  stableFrames: winkState.stableFrames,
+                  openFrames: winkState.openFrames,
+                });
+                updateGestureText(
+                  winkState.direction === "none"
+                    ? "윙크 확인 중"
+                    : getPendingGestureText(winkState.direction, holdDuration)
+                );
+              }
+            } else {
+              updateWinkDebug({
+                status: "실패: 시작 조건 미달",
+                detail: "닫힌 눈과 뜬 눈의 차이가 임계값보다 작아서 한쪽 눈 감기로 시작하지 못했습니다.",
+                trackingPhase: "idle",
+                trackingEye: "none",
+                stableFrames: 0,
+                openFrames: 0,
+              });
+              updateGestureText("짧게 한쪽 윙크");
             }
-
-            updateGestureText(isFacingForward ? "짧게 한쪽 윙크" : "고개를 살짝만 돌려 주세요");
-            winkCandidateRef.current = "none";
-            winkHoldStartRef.current = null;
-            winkLastSeenRef.current = null;
-            winkPeakStrengthRef.current = 0;
             return;
           }
 
-          if (!gestureArmedRef.current) {
+          if (winkState.phase !== "tracking" || winkState.eye !== winkSignal.eye) {
+            winkStateRef.current = {
+              phase: "tracking",
+              eye: winkSignal.eye,
+              direction: winkSignal.direction,
+              startedAt: now,
+              peakStrength: winkSignal.strength,
+              stableFrames: 1,
+              missingFrames: 0,
+              openFrames: 0,
+            };
+            updateWinkDebug({
+              status: "추적 시작",
+              detail: `${winkSignal.eye === "left" ? "왼쪽" : "오른쪽"} 눈 감기를 후보로 잡았습니다.`,
+              trackingPhase: "tracking",
+              trackingEye: winkSignal.eye,
+              stableFrames: 1,
+              openFrames: 0,
+            });
+            updateGestureText("윙크 확인 중");
             return;
           }
 
-          winkLastSeenRef.current = now;
-          if (winkCandidateRef.current === winkSignal.eye) {
-            winkPeakStrengthRef.current = Math.max(winkPeakStrengthRef.current, winkSignal.strength);
-            if (winkHoldStartRef.current === null) {
-              winkHoldStartRef.current = now;
+          winkState.missingFrames = 0;
+          winkState.stableFrames = Math.min(winkState.stableFrames + 1, WINK_STABLE_FRAME_TARGET);
+          winkState.peakStrength = Math.max(winkState.peakStrength, winkSignal.strength);
+          winkState.direction = winkSignal.direction;
+
+          const holdDuration = winkState.startedAt ? now - winkState.startedAt : 0;
+          updateWinkDebug({
+            status: "성공 직전",
+            detail: "한쪽 눈 감기가 유지되고 있어 페이지 넘김 조건을 채우는 중입니다.",
+            trackingPhase: winkState.phase,
+            trackingEye: winkState.eye,
+            stableFrames: winkState.stableFrames,
+            openFrames: winkState.openFrames,
+          });
+          updateGestureText(
+            winkState.direction === "none"
+              ? "윙크 확인 중"
+              : getPendingGestureText(winkState.direction, holdDuration)
+          );
+
+          if (
+            winkState.stableFrames >= WINK_STABLE_FRAME_TARGET &&
+            holdDuration >= WINK_HOLD_DURATION_MS &&
+            winkState.peakStrength >= WINK_MIN_PEAK_STRENGTH &&
+            winkState.direction !== "none"
+          ) {
+            const didTurnPage = handleGesture(winkState.direction);
+            if (didTurnPage) {
+              resetWinkState("waiting-open");
+              updateWinkDebug({
+                status: "성공",
+                detail: "윙크가 확정되어 페이지를 넘겼습니다. 다음 감지를 위해 눈을 다시 떠 주세요.",
+                trackingPhase: "waiting-open",
+                trackingEye: "none",
+                stableFrames: 0,
+                openFrames: 0,
+              });
+            } else {
+              resetWinkState();
+              updateWinkDebug({
+                status: "실패: 페이지 이동 없음",
+                detail: "쿨다운 중이거나 첫/마지막 페이지라 실제 페이지 이동이 일어나지 않았습니다.",
+                trackingPhase: "idle",
+                trackingEye: "none",
+                stableFrames: 0,
+                openFrames: 0,
+              });
             }
-          } else {
-            winkCandidateRef.current = winkSignal.eye;
-            winkHoldStartRef.current = now;
-            winkPeakStrengthRef.current = winkSignal.strength;
-          }
-
-          const holdDuration = winkHoldStartRef.current ? now - winkHoldStartRef.current : 0;
-          if (winkSignal.direction !== "none") {
-            updateGestureText(getPendingGestureText(winkSignal.direction, holdDuration));
-          }
-
-          if (holdDuration >= WINK_HOLD_DURATION_MS && winkPeakStrengthRef.current >= WINK_MIN_PEAK_STRENGTH) {
-            const confirmedDirection = winkSignal.direction;
-            if (confirmedDirection === "none") {
-              return;
-            }
-
-            handleGesture(confirmedDirection);
-            winkHoldStartRef.current = null;
-            winkCandidateRef.current = "none";
-            winkLastSeenRef.current = null;
-            winkPeakStrengthRef.current = 0;
           }
         });
 
@@ -779,6 +1058,10 @@ export default function Home() {
     calibrationFramesRef.current = 0;
     calibrationLeftSumRef.current = 0;
     calibrationRightSumRef.current = 0;
+    forwardStableFramesRef.current = 0;
+    smoothedLeftEyeRef.current = null;
+    smoothedRightEyeRef.current = null;
+    resetWinkState();
     setCalibrationProgress(0);
     setHasCalibration(false);
     setIsCalibrating(true);
@@ -821,7 +1104,9 @@ export default function Home() {
 
   const handleGesture = (direction: "left" | "right") => {
     const now = performance.now();
-    if (now - lastSwitchTimeRef.current < PAGE_TURN_COOLDOWN_MS) return;
+    if (now - lastSwitchTimeRef.current < PAGE_TURN_COOLDOWN_MS) {
+      return false;
+    }
 
     const totalPages = pageCountRef.current;
     const currentPage = currentPageRef.current;
@@ -829,25 +1114,24 @@ export default function Home() {
     if (direction === "right") {
       if (currentPage >= totalPages) {
         updateGestureText("마지막 페이지");
+        return false;
       } else {
         queuePage(currentPage + 1);
         updateGestureText("다음 페이지");
+        lastSwitchTimeRef.current = now;
+        return true;
       }
     } else {
       if (currentPage <= 1) {
         updateGestureText("첫 페이지");
+        return false;
       } else {
         queuePage(currentPage - 1);
         updateGestureText("이전 페이지");
+        lastSwitchTimeRef.current = now;
+        return true;
       }
     }
-
-    lastSwitchTimeRef.current = now;
-    gestureArmedRef.current = false;
-    winkCandidateRef.current = "none";
-    winkHoldStartRef.current = null;
-    winkLastSeenRef.current = null;
-    winkPeakStrengthRef.current = 0;
   };
 
   const computeEyeRatio = (
@@ -885,6 +1169,36 @@ export default function Home() {
     return targetRef.current;
   };
 
+  const getEyeVisibilityMetrics = (landmarks: NormalizedLandmark[]) => {
+    const leftEyeOuter = landmarks[33];
+    const leftEyeInner = landmarks[133];
+    const rightEyeInner = landmarks[362];
+    const rightEyeOuter = landmarks[263];
+    const noseTip = landmarks[1];
+
+    const leftEyeWidth = Math.hypot(leftEyeOuter.x - leftEyeInner.x, leftEyeOuter.y - leftEyeInner.y);
+    const rightEyeWidth = Math.hypot(rightEyeOuter.x - rightEyeInner.x, rightEyeOuter.y - rightEyeInner.y);
+    const smallerEyeWidth = Math.min(leftEyeWidth, rightEyeWidth);
+    const largerEyeWidth = Math.max(leftEyeWidth, rightEyeWidth, 0.0001);
+    const eyeWidthBalance = smallerEyeWidth / largerEyeWidth;
+
+    const leftEyeCenterX = (leftEyeOuter.x + leftEyeInner.x) / 2;
+    const leftEyeCenterY = (leftEyeOuter.y + leftEyeInner.y) / 2;
+    const rightEyeCenterX = (rightEyeOuter.x + rightEyeInner.x) / 2;
+    const rightEyeCenterY = (rightEyeOuter.y + rightEyeInner.y) / 2;
+
+    const noseToLeftEye = Math.hypot(noseTip.x - leftEyeCenterX, noseTip.y - leftEyeCenterY);
+    const noseToRightEye = Math.hypot(noseTip.x - rightEyeCenterX, noseTip.y - rightEyeCenterY);
+    const smallerEyeCenterDistance = Math.min(noseToLeftEye, noseToRightEye);
+    const largerEyeCenterDistance = Math.max(noseToLeftEye, noseToRightEye, 0.0001);
+    const eyeCenterBalance = smallerEyeCenterDistance / largerEyeCenterDistance;
+
+    return {
+      eyeWidthBalance,
+      eyeCenterBalance,
+    };
+  };
+
   const isFaceFacingForward = (landmarks: NormalizedLandmark[]) => {
     const leftEyeOuter = landmarks[33];
     const rightEyeOuter = landmarks[263];
@@ -901,6 +1215,28 @@ export default function Home() {
       noseOffsetX < 0.26 &&
       noseOffsetY < 0.5 &&
       eyeDistanceX > 0.03
+    );
+  };
+
+  const isFaceForwardEnoughForWink = (landmarks: NormalizedLandmark[]) => {
+    const leftEyeOuter = landmarks[33];
+    const rightEyeOuter = landmarks[263];
+    const noseTip = landmarks[1];
+    const eyeCenterX = (leftEyeOuter.x + rightEyeOuter.x) / 2;
+    const eyeCenterY = (leftEyeOuter.y + rightEyeOuter.y) / 2;
+    const eyeLineTilt = Math.abs(leftEyeOuter.y - rightEyeOuter.y);
+    const noseOffsetX = Math.abs(noseTip.x - eyeCenterX);
+    const noseOffsetY = Math.abs(noseTip.y - eyeCenterY);
+    const eyeDistanceX = Math.abs(rightEyeOuter.x - leftEyeOuter.x);
+    const { eyeWidthBalance, eyeCenterBalance } = getEyeVisibilityMetrics(landmarks);
+
+    return (
+      eyeLineTilt < ACTIVE_FORWARD_TILT_MAX &&
+      noseOffsetX < ACTIVE_FORWARD_NOSE_X_MAX &&
+      noseOffsetY < ACTIVE_FORWARD_NOSE_Y_MAX &&
+      eyeDistanceX > ACTIVE_FORWARD_EYE_DISTANCE_MIN &&
+      eyeWidthBalance >= ACTIVE_FORWARD_EYE_WIDTH_BALANCE_MIN &&
+      eyeCenterBalance >= ACTIVE_FORWARD_EYE_CENTER_BALANCE_MIN
     );
   };
 
@@ -982,7 +1318,24 @@ export default function Home() {
     return leftNormalized >= RECOVERY_OPEN_RATIO_THRESHOLD && rightNormalized >= RECOVERY_OPEN_RATIO_THRESHOLD;
   };
 
-  const areBothEyesClosed = (leftEyeRatio: number, rightEyeRatio: number) => {
+  const areEyesRecoveredFast = (leftEyeRatio: number, rightEyeRatio: number) => {
+    const leftOpenBaseline = Math.max(leftEyeOpenRef.current, 0.0001);
+    const rightOpenBaseline = Math.max(rightEyeOpenRef.current, 0.0001);
+    const leftNormalized = leftEyeRatio / leftOpenBaseline;
+    const rightNormalized = rightEyeRatio / rightOpenBaseline;
+
+    return (
+      leftNormalized >= RECOVERY_OPEN_RATIO_FAST_THRESHOLD &&
+      rightNormalized >= RECOVERY_OPEN_RATIO_FAST_THRESHOLD
+    );
+  };
+
+  const areBothEyesClosed = (
+    leftEyeRatio: number,
+    rightEyeRatio: number,
+    dominantWinkStrength: number,
+    normalizedGap: number
+  ) => {
     const leftOpenBaseline = Math.max(leftEyeOpenRef.current, 0.0001);
     const rightOpenBaseline = Math.max(rightEyeOpenRef.current, 0.0001);
     const leftNormalized = leftEyeRatio / leftOpenBaseline;
@@ -991,33 +1344,14 @@ export default function Home() {
     return (
       leftNormalized < BOTH_EYES_CLOSED_RATIO_THRESHOLD &&
       rightNormalized < BOTH_EYES_CLOSED_RATIO_THRESHOLD &&
-      leftNormalized + rightNormalized < BOTH_EYES_CLOSED_COMBINED_THRESHOLD
+      leftNormalized + rightNormalized < BOTH_EYES_CLOSED_COMBINED_THRESHOLD &&
+      normalizedGap <= BOTH_EYES_SIMILARITY_GAP_THRESHOLD &&
+      dominantWinkStrength <= BOTH_EYES_DOMINANCE_STRENGTH_MAX
     );
   };
 
   const areBothEyesClearlyVisible = (landmarks: NormalizedLandmark[]) => {
-    const leftEyeOuter = landmarks[33];
-    const leftEyeInner = landmarks[133];
-    const rightEyeInner = landmarks[362];
-    const rightEyeOuter = landmarks[263];
-    const noseTip = landmarks[1];
-
-    const leftEyeWidth = Math.hypot(leftEyeOuter.x - leftEyeInner.x, leftEyeOuter.y - leftEyeInner.y);
-    const rightEyeWidth = Math.hypot(rightEyeOuter.x - rightEyeInner.x, rightEyeOuter.y - rightEyeInner.y);
-    const smallerEyeWidth = Math.min(leftEyeWidth, rightEyeWidth);
-    const largerEyeWidth = Math.max(leftEyeWidth, rightEyeWidth, 0.0001);
-    const eyeWidthBalance = smallerEyeWidth / largerEyeWidth;
-
-    const leftEyeCenterX = (leftEyeOuter.x + leftEyeInner.x) / 2;
-    const leftEyeCenterY = (leftEyeOuter.y + leftEyeInner.y) / 2;
-    const rightEyeCenterX = (rightEyeOuter.x + rightEyeInner.x) / 2;
-    const rightEyeCenterY = (rightEyeOuter.y + rightEyeInner.y) / 2;
-
-    const noseToLeftEye = Math.hypot(noseTip.x - leftEyeCenterX, noseTip.y - leftEyeCenterY);
-    const noseToRightEye = Math.hypot(noseTip.x - rightEyeCenterX, noseTip.y - rightEyeCenterY);
-    const smallerEyeCenterDistance = Math.min(noseToLeftEye, noseToRightEye);
-    const largerEyeCenterDistance = Math.max(noseToLeftEye, noseToRightEye, 0.0001);
-    const eyeCenterBalance = smallerEyeCenterDistance / largerEyeCenterDistance;
+    const { eyeWidthBalance, eyeCenterBalance } = getEyeVisibilityMetrics(landmarks);
 
     return (
       eyeWidthBalance >= EYE_VISIBILITY_BALANCE_THRESHOLD &&
@@ -1047,6 +1381,7 @@ export default function Home() {
   const mirrorModeTitle = isWinkMirrored ? "전면카메라 기준" : "일반 카메라 기준";
   const mirrorModeHint = isWinkMirrored ? "거울처럼 좌우를 해석" : "실제 좌우 그대로 해석";
   const viewerTitle = hasLoadedPdf ? `${currentFileName ?? "불러온 악보"} (${currentPage}/${pageCount})` : "악보";
+  const formatDebugNumber = (value: number | null) => (value === null ? "-" : value.toFixed(2));
   const gestureOverlayText = (() => {
     if (gestureText.includes("인식됨") || gestureText === "윙크 인식 중") {
       return gestureText;
@@ -1212,6 +1547,50 @@ export default function Home() {
 
             <div className="desktop-motion-guide">{motionGuideSection}</div>
           </div>
+
+          <section className="panel-card compact-panel wink-debug-panel" aria-label="윙크 감지 디버그">
+            <h2>감지 디버그</h2>
+            <p className="wink-debug-status">{winkDebug.status}</p>
+            <p className="wink-debug-detail">{winkDebug.detail}</p>
+            <dl className="wink-debug-grid">
+              <div>
+                <dt>왼눈 비율</dt>
+                <dd>{formatDebugNumber(winkDebug.leftNormalized)}</dd>
+              </div>
+              <div>
+                <dt>오른눈 비율</dt>
+                <dd>{formatDebugNumber(winkDebug.rightNormalized)}</dd>
+              </div>
+              <div>
+                <dt>왼눈 강도</dt>
+                <dd>{winkDebug.leftStrength.toFixed(2)}</dd>
+              </div>
+              <div>
+                <dt>오른눈 강도</dt>
+                <dd>{winkDebug.rightStrength.toFixed(2)}</dd>
+              </div>
+              <div>
+                <dt>정면 프레임</dt>
+                <dd>{winkDebug.forwardStableFrames}</dd>
+              </div>
+              <div>
+                <dt>추적 단계</dt>
+                <dd>{winkDebug.trackingPhase}</dd>
+              </div>
+              <div>
+                <dt>후보 눈</dt>
+                <dd>{winkDebug.trackingEye}</dd>
+              </div>
+              <div>
+                <dt>안정 프레임</dt>
+                <dd>{winkDebug.stableFrames}</dd>
+              </div>
+              <div>
+                <dt>재무장 프레임</dt>
+                <dd>{winkDebug.openFrames}</dd>
+              </div>
+            </dl>
+          </section>
 
           <video ref={videoRef} autoPlay muted playsInline className="camera-feed-hidden" />
 
