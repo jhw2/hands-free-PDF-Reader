@@ -15,13 +15,13 @@ const WINK_HOLD_DURATION_MS = 300;
 const PAGE_TURN_COOLDOWN_MS = 1200;
 const WINK_GRACE_DURATION_MS = 140;
 const EYE_RATIO_SMOOTHING_ALPHA = 0.35;
-const WINK_START_CLOSED_RATIO_THRESHOLD = 0.72;
-const WINK_START_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.82;
-const WINK_START_CLOSURE_GAP_THRESHOLD = 0.18;
-const WINK_CONTINUE_CLOSED_RATIO_THRESHOLD = 0.8;
-const WINK_CONTINUE_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.72;
-const WINK_CONTINUE_CLOSURE_GAP_THRESHOLD = 0.12;
-const WINK_MIN_PEAK_STRENGTH = 0.26;
+const WINK_START_CLOSED_RATIO_THRESHOLD = 0.84;
+const WINK_START_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.72;
+const WINK_START_CLOSURE_GAP_THRESHOLD = 0.1;
+const WINK_CONTINUE_CLOSED_RATIO_THRESHOLD = 0.88;
+const WINK_CONTINUE_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.64;
+const WINK_CONTINUE_CLOSURE_GAP_THRESHOLD = 0.06;
+const WINK_MIN_PEAK_STRENGTH = 0.16;
 const BOTH_EYES_CLOSED_RATIO_THRESHOLD = 0.78;
 const BOTH_EYES_CLOSED_COMBINED_THRESHOLD = 1.5;
 const RECOVERY_OPEN_RATIO_THRESHOLD = 0.9;
@@ -31,6 +31,7 @@ const CALIBRATION_FORWARD_TILT_MAX = 0.1;
 const CALIBRATION_FORWARD_NOSE_X_MAX = 0.16;
 const CALIBRATION_FORWARD_NOSE_Y_MAX = 0.38;
 const CALIBRATION_EYE_DISTANCE_MIN = 0.035;
+const FORWARD_STABLE_FRAME_TARGET = 4;
 
 type SavedScore = {
   id: string;
@@ -151,6 +152,7 @@ export default function Home() {
   const calibrationFramesRef = useRef(0);
   const calibrationLeftSumRef = useRef(0);
   const calibrationRightSumRef = useRef(0);
+  const forwardStableFramesRef = useRef(0);
   const leftEyeOpenRef = useRef(0.24);
   const rightEyeOpenRef = useRef(0.24);
   const smoothedLeftEyeRef = useRef<number | null>(null);
@@ -344,6 +346,7 @@ export default function Home() {
       calibrationFramesRef.current = 0;
       calibrationLeftSumRef.current = 0;
       calibrationRightSumRef.current = 0;
+      forwardStableFramesRef.current = 0;
       leftEyeOpenRef.current = 0.24;
       rightEyeOpenRef.current = 0.24;
       smoothedLeftEyeRef.current = null;
@@ -418,6 +421,7 @@ export default function Home() {
         faceMesh.onResults((results: Results) => {
           if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
             updateGestureText("얼굴을 인식할 수 없음");
+            forwardStableFramesRef.current = 0;
             winkCandidateRef.current = "none";
             winkHoldStartRef.current = null;
             winkPeakStrengthRef.current = 0;
@@ -440,6 +444,14 @@ export default function Home() {
           const rightEyeRatio = getSmoothedEyeRatio(smoothedRightEyeRef, rawRightEyeRatio);
           const isFacingForward = isFaceFacingForward(landmarks);
           const isForwardEnoughForCalibration = isFaceForwardEnoughForCalibration(landmarks);
+          const leftOpenBaseline = Math.max(leftEyeOpenRef.current, 0.0001);
+          const rightOpenBaseline = Math.max(rightEyeOpenRef.current, 0.0001);
+          const leftNormalized = leftEyeRatio / leftOpenBaseline;
+          const rightNormalized = rightEyeRatio / rightOpenBaseline;
+          const leftClosure = 1 - leftNormalized;
+          const rightClosure = 1 - rightNormalized;
+          const leftStrength = leftClosure - rightClosure;
+          const rightStrength = rightClosure - leftClosure;
 
           if (calibrationActiveRef.current) {
             if (!isForwardEnoughForCalibration) {
@@ -469,13 +481,20 @@ export default function Home() {
             return;
           }
 
+          if (isFacingForward) {
+            forwardStableFramesRef.current = Math.min(forwardStableFramesRef.current + 1, FORWARD_STABLE_FRAME_TARGET);
+          } else {
+            forwardStableFramesRef.current = 0;
+          }
+
           const eyesRecovered = areEyesRecovered(leftEyeRatio, rightEyeRatio);
-          if (eyesRecovered) {
+          if (eyesRecovered && forwardStableFramesRef.current >= FORWARD_STABLE_FRAME_TARGET) {
             gestureArmedRef.current = true;
           }
 
           if (areBothEyesClosed(leftEyeRatio, rightEyeRatio)) {
             updateGestureText("양쪽 눈 감김으로 인식 중");
+            forwardStableFramesRef.current = 0;
             winkCandidateRef.current = "none";
             winkHoldStartRef.current = null;
             winkLastSeenRef.current = null;
@@ -485,6 +504,7 @@ export default function Home() {
 
           if (!areBothEyesClearlyVisible(landmarks)) {
             updateGestureText("양쪽 눈이 보이게 정면을 봐 주세요");
+            forwardStableFramesRef.current = 0;
             winkCandidateRef.current = "none";
             winkHoldStartRef.current = null;
             winkLastSeenRef.current = null;
@@ -494,6 +514,15 @@ export default function Home() {
 
           if (!isFacingForward) {
             updateGestureText("고개를 정면으로 맞춰 주세요");
+            winkCandidateRef.current = "none";
+            winkHoldStartRef.current = null;
+            winkLastSeenRef.current = null;
+            winkPeakStrengthRef.current = 0;
+            return;
+          }
+
+          if (forwardStableFramesRef.current < FORWARD_STABLE_FRAME_TARGET) {
+            updateGestureText("정면을 잠깐 유지해 주세요");
             winkCandidateRef.current = "none";
             winkHoldStartRef.current = null;
             winkLastSeenRef.current = null;
@@ -774,6 +803,17 @@ export default function Home() {
   };
 
   const getPendingGestureText = (direction: "left" | "right", holdDuration: number) => {
+    const totalPages = pageCountRef.current;
+    const currentPage = currentPageRef.current;
+
+    if (direction === "right" && currentPage >= totalPages) {
+      return "마지막 페이지";
+    }
+
+    if (direction === "left" && currentPage <= 1) {
+      return "첫 페이지";
+    }
+
     const remainingSeconds = Math.max(0, (WINK_HOLD_DURATION_MS - holdDuration) / 1000).toFixed(1);
     const directionLabel = direction === "right" ? "다음" : "이전";
     return `인식됨 ${remainingSeconds}초 후 ${directionLabel} 페이지 이동`;
@@ -857,9 +897,9 @@ export default function Home() {
     const eyeDistanceX = Math.abs(rightEyeOuter.x - leftEyeOuter.x);
 
     return (
-      eyeLineTilt < 0.15 &&
-      noseOffsetX < 0.22 &&
-      noseOffsetY < 0.46 &&
+      eyeLineTilt < 0.18 &&
+      noseOffsetX < 0.26 &&
+      noseOffsetY < 0.5 &&
       eyeDistanceX > 0.03
     );
   };
@@ -1046,8 +1086,8 @@ export default function Home() {
             <li>
               <span className="motion-guide-step">2.</span>
               <div>
-                <strong>정면 보고 보정</strong>
-                <span>처음 켜면 잠깐 정면을 보고 보정을 진행해 주세요.</span>
+                <strong>정면 보고 기본 보정</strong>
+                <span>처음 켜면 잠깐 정면을 보고 기본 보정을 진행합니다.</span>
               </div>
             </li>
             <li>

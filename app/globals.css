@@ -420,9 +420,11 @@ p {
 }
 
 .camera-feed-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
+  position: fixed;
+  top: -9999px;
+  left: -9999px;
+  width: 160px;
+  height: 120px;
   opacity: 0;
   pointer-events: none;
 }
