@@ -9,15 +9,24 @@ const READER_STORE_NAME = "reader-state";
 const SESSION_STATE_KEY = "session-state";
 const SAVED_SCORES_KEY = "saved-scores";
 const WINK_MIRROR_KEY = "wink-mirror";
+const MOTION_DETECTION_ENABLED_KEY = "motion-detection-enabled";
 const CALIBRATION_SAMPLE_TARGET = 18;
-const WINK_HOLD_DURATION_MS = 120;
-const PAGE_TURN_COOLDOWN_MS = 900;
-const WINK_GRACE_DURATION_MS = 100;
+const WINK_HOLD_DURATION_MS = 300;
+const PAGE_TURN_COOLDOWN_MS = 1200;
+const WINK_GRACE_DURATION_MS = 140;
 const EYE_RATIO_SMOOTHING_ALPHA = 0.35;
-const WINK_CLOSED_RATIO_THRESHOLD = 0.7;
-const OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.78;
-const WINK_CLOSURE_GAP_THRESHOLD = 0.16;
-const RECOVERY_OPEN_RATIO_THRESHOLD = 0.84;
+const WINK_START_CLOSED_RATIO_THRESHOLD = 0.72;
+const WINK_START_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.82;
+const WINK_START_CLOSURE_GAP_THRESHOLD = 0.18;
+const WINK_CONTINUE_CLOSED_RATIO_THRESHOLD = 0.8;
+const WINK_CONTINUE_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.72;
+const WINK_CONTINUE_CLOSURE_GAP_THRESHOLD = 0.12;
+const WINK_MIN_PEAK_STRENGTH = 0.26;
+const BOTH_EYES_CLOSED_RATIO_THRESHOLD = 0.78;
+const BOTH_EYES_CLOSED_COMBINED_THRESHOLD = 1.5;
+const RECOVERY_OPEN_RATIO_THRESHOLD = 0.9;
+const EYE_VISIBILITY_BALANCE_THRESHOLD = 0.68;
+const EYE_CENTER_BALANCE_THRESHOLD = 0.62;
 const CALIBRATION_FORWARD_TILT_MAX = 0.1;
 const CALIBRATION_FORWARD_NOSE_X_MAX = 0.16;
 const CALIBRATION_FORWARD_NOSE_Y_MAX = 0.38;
@@ -109,7 +118,6 @@ export default function Home() {
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
   const [savedScores, setSavedScores] = useState<SavedScore[]>([]);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
-  const [isCameraPreviewOpen, setIsCameraPreviewOpen] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [isWinkMirrored, setIsWinkMirrored] = useState(true);
@@ -133,6 +141,7 @@ export default function Home() {
   const winkCandidateRef = useRef<"left" | "right" | "none">("none");
   const winkHoldStartRef = useRef<number | null>(null);
   const winkLastSeenRef = useRef<number | null>(null);
+  const winkPeakStrengthRef = useRef(0);
   const gestureArmedRef = useRef(true);
   const gestureTextRef = useRef("PDF를 먼저 불러오면 다음 단계가 쉬워집니다.");
   const calibrationActiveRef = useRef(false);
@@ -261,10 +270,11 @@ export default function Home() {
 
     const restoreReaderState = async () => {
       try {
-        const [storedScores, sessionState, storedWinkMirror] = await Promise.all([
+        const [storedScores, sessionState, storedWinkMirror, storedMotionDetectionEnabled] = await Promise.all([
           readReaderValue<SavedScore[]>(SAVED_SCORES_KEY),
           readReaderValue<SessionState>(SESSION_STATE_KEY),
           readReaderValue<boolean>(WINK_MIRROR_KEY),
+          readReaderValue<boolean>(MOTION_DETECTION_ENABLED_KEY),
         ]);
 
         if (cancelled) {
@@ -273,6 +283,7 @@ export default function Home() {
 
         setSavedScores(storedScores ?? []);
         setIsWinkMirrored(storedWinkMirror ?? true);
+        setCameraEnabled(storedMotionDetectionEnabled ?? false);
 
         if (!sessionState?.pdfBlob) {
           return;
@@ -348,9 +359,9 @@ export default function Home() {
       if (!cameraEnabled) {
         await stopCamera();
         if (cameraPermission === "granted") {
-          updateGestureText("카메라 대기 중");
+          updateGestureText("모션 감지 대기 중");
         } else {
-          updateGestureText("카메라 꺼짐");
+          updateGestureText("모션 감지 꺼짐");
         }
         return;
       }
@@ -391,13 +402,22 @@ export default function Home() {
             updateGestureText("얼굴을 인식할 수 없음");
             winkCandidateRef.current = "none";
             winkHoldStartRef.current = null;
+            winkPeakStrengthRef.current = 0;
             gestureArmedRef.current = true;
             return;
           }
 
           const landmarks = results.multiFaceLandmarks[0];
-          const rawLeftEyeRatio = computeEyeRatio(landmarks, 33, 133, 159, 145);
-          const rawRightEyeRatio = computeEyeRatio(landmarks, 362, 263, 386, 374);
+          const rawLeftEyeRatio = computeEyeRatio(landmarks, 33, 133, [
+            [159, 145],
+            [158, 153],
+            [160, 144],
+          ]);
+          const rawRightEyeRatio = computeEyeRatio(landmarks, 362, 263, [
+            [386, 374],
+            [387, 373],
+            [385, 380],
+          ]);
           const leftEyeRatio = getSmoothedEyeRatio(smoothedLeftEyeRef, rawLeftEyeRatio);
           const rightEyeRatio = getSmoothedEyeRatio(smoothedRightEyeRef, rawRightEyeRatio);
           const isFacingForward = isFaceFacingForward(landmarks);
@@ -436,10 +456,37 @@ export default function Home() {
             gestureArmedRef.current = true;
           }
 
-          const wink = computeWink(leftEyeRatio, rightEyeRatio);
+          if (areBothEyesClosed(leftEyeRatio, rightEyeRatio)) {
+            updateGestureText("양쪽 눈 감김으로 인식 중");
+            winkCandidateRef.current = "none";
+            winkHoldStartRef.current = null;
+            winkLastSeenRef.current = null;
+            winkPeakStrengthRef.current = 0;
+            return;
+          }
+
+          if (!areBothEyesClearlyVisible(landmarks)) {
+            updateGestureText("양쪽 눈이 보이게 정면을 봐 주세요");
+            winkCandidateRef.current = "none";
+            winkHoldStartRef.current = null;
+            winkLastSeenRef.current = null;
+            winkPeakStrengthRef.current = 0;
+            return;
+          }
+
+          if (!isFacingForward) {
+            updateGestureText("고개를 정면으로 맞춰 주세요");
+            winkCandidateRef.current = "none";
+            winkHoldStartRef.current = null;
+            winkLastSeenRef.current = null;
+            winkPeakStrengthRef.current = 0;
+            return;
+          }
+
+          const winkSignal = computeWink(leftEyeRatio, rightEyeRatio, winkCandidateRef.current);
           const now = performance.now();
 
-          if (wink === "none") {
+          if (winkSignal.eye === "none") {
             const withinGraceWindow =
               winkCandidateRef.current !== "none" &&
               winkLastSeenRef.current !== null &&
@@ -454,6 +501,7 @@ export default function Home() {
             winkCandidateRef.current = "none";
             winkHoldStartRef.current = null;
             winkLastSeenRef.current = null;
+            winkPeakStrengthRef.current = 0;
             return;
           }
 
@@ -462,23 +510,33 @@ export default function Home() {
           }
 
           winkLastSeenRef.current = now;
-          if (winkCandidateRef.current === wink) {
+          if (winkCandidateRef.current === winkSignal.eye) {
+            winkPeakStrengthRef.current = Math.max(winkPeakStrengthRef.current, winkSignal.strength);
             if (winkHoldStartRef.current === null) {
               winkHoldStartRef.current = now;
             }
           } else {
-            winkCandidateRef.current = wink;
+            winkCandidateRef.current = winkSignal.eye;
             winkHoldStartRef.current = now;
+            winkPeakStrengthRef.current = winkSignal.strength;
           }
 
           const holdDuration = winkHoldStartRef.current ? now - winkHoldStartRef.current : 0;
-          updateGestureText("윙크 인식 중");
+          if (winkSignal.direction !== "none") {
+            updateGestureText(getPendingGestureText(winkSignal.direction, holdDuration));
+          }
 
-          if (holdDuration >= WINK_HOLD_DURATION_MS) {
-            handleGesture(wink);
+          if (holdDuration >= WINK_HOLD_DURATION_MS && winkPeakStrengthRef.current >= WINK_MIN_PEAK_STRENGTH) {
+            const confirmedDirection = winkSignal.direction;
+            if (confirmedDirection === "none") {
+              return;
+            }
+
+            handleGesture(confirmedDirection);
             winkHoldStartRef.current = null;
             winkCandidateRef.current = "none";
             winkLastSeenRef.current = null;
+            winkPeakStrengthRef.current = 0;
           }
         });
 
@@ -510,6 +568,7 @@ export default function Home() {
             setCameraPermission("denied");
           }
           setCameraEnabled(false);
+          void writeReaderValue(MOTION_DETECTION_ENABLED_KEY, false);
           updateGestureText("카메라 권한 허용이 필요합니다.");
         }
       }
@@ -659,11 +718,13 @@ export default function Home() {
   const handleCameraAction = () => {
     if (cameraEnabled) {
       setCameraEnabled(false);
+      void writeReaderValue(MOTION_DETECTION_ENABLED_KEY, false);
       return;
     }
 
     setCameraEnabled(true);
-    updateGestureText("카메라 권한 창이 뜨면 허용해 주세요.");
+    void writeReaderValue(MOTION_DETECTION_ENABLED_KEY, true);
+    updateGestureText("모션 감지 권한 창이 뜨면 허용해 주세요.");
   };
 
   const handleCalibrationReset = () => {
@@ -675,6 +736,12 @@ export default function Home() {
     setHasCalibration(false);
     setIsCalibrating(true);
     updateGestureText("정면을 1초만 봐 주세요");
+  };
+
+  const getPendingGestureText = (direction: "left" | "right", holdDuration: number) => {
+    const remainingSeconds = Math.max(0, (WINK_HOLD_DURATION_MS - holdDuration) / 1000).toFixed(1);
+    const directionLabel = direction === "right" ? "다음" : "이전";
+    return `인식됨 ${remainingSeconds}초 후 ${directionLabel} 페이지 이동`;
   };
 
   const handleGesture = (direction: "left" | "right") => {
@@ -705,22 +772,25 @@ export default function Home() {
     winkCandidateRef.current = "none";
     winkHoldStartRef.current = null;
     winkLastSeenRef.current = null;
+    winkPeakStrengthRef.current = 0;
   };
 
   const computeEyeRatio = (
     landmarks: NormalizedLandmark[],
     outerIndex: number,
     innerIndex: number,
-    upperIndex: number,
-    lowerIndex: number
+    verticalPairs: Array<[number, number]>
   ) => {
     const outer = landmarks[outerIndex];
     const inner = landmarks[innerIndex];
-    const upper = landmarks[upperIndex];
-    const lower = landmarks[lowerIndex];
 
     const horizontal = Math.hypot(outer.x - inner.x, outer.y - inner.y);
-    const vertical = Math.hypot(upper.x - lower.x, upper.y - lower.y);
+    const vertical =
+      verticalPairs.reduce((sum, [upperIndex, lowerIndex]) => {
+        const upper = landmarks[upperIndex];
+        const lower = landmarks[lowerIndex];
+        return sum + Math.hypot(upper.x - lower.x, upper.y - lower.y);
+      }, 0) / verticalPairs.length;
 
     if (horizontal === 0) {
       return 0;
@@ -752,9 +822,9 @@ export default function Home() {
     const eyeDistanceX = Math.abs(rightEyeOuter.x - leftEyeOuter.x);
 
     return (
-      eyeLineTilt < 0.12 &&
-      noseOffsetX < 0.2 &&
-      noseOffsetY < 0.42 &&
+      eyeLineTilt < 0.15 &&
+      noseOffsetX < 0.22 &&
+      noseOffsetY < 0.46 &&
       eyeDistanceX > 0.03
     );
   };
@@ -777,24 +847,55 @@ export default function Home() {
     );
   };
 
-  const computeWink = (leftEyeRatio: number, rightEyeRatio: number) => {
+  const computeWink = (
+    leftEyeRatio: number,
+    rightEyeRatio: number,
+    activeCandidate: "left" | "right" | "none"
+  ): { eye: "left" | "right" | "none"; direction: "left" | "right" | "none"; strength: number } => {
     const leftOpenBaseline = Math.max(leftEyeOpenRef.current, 0.0001);
     const rightOpenBaseline = Math.max(rightEyeOpenRef.current, 0.0001);
     const leftNormalized = leftEyeRatio / leftOpenBaseline;
     const rightNormalized = rightEyeRatio / rightOpenBaseline;
     const leftClosure = 1 - leftNormalized;
     const rightClosure = 1 - rightNormalized;
+    const leftStrength = leftClosure - rightClosure;
+    const rightStrength = rightClosure - leftClosure;
 
-    const leftClosed = leftNormalized < WINK_CLOSED_RATIO_THRESHOLD;
-    const rightClosed = rightNormalized < WINK_CLOSED_RATIO_THRESHOLD;
-    const leftOpen = leftNormalized > OTHER_EYE_OPEN_RATIO_THRESHOLD;
-    const rightOpen = rightNormalized > OTHER_EYE_OPEN_RATIO_THRESHOLD;
-    const leftDominant = leftClosure - rightClosure > WINK_CLOSURE_GAP_THRESHOLD;
-    const rightDominant = rightClosure - leftClosure > WINK_CLOSURE_GAP_THRESHOLD;
+    const isLeftStart =
+      leftNormalized < WINK_START_CLOSED_RATIO_THRESHOLD &&
+      rightNormalized > WINK_START_OTHER_EYE_OPEN_RATIO_THRESHOLD &&
+      leftStrength > WINK_START_CLOSURE_GAP_THRESHOLD;
+    const isRightStart =
+      rightNormalized < WINK_START_CLOSED_RATIO_THRESHOLD &&
+      leftNormalized > WINK_START_OTHER_EYE_OPEN_RATIO_THRESHOLD &&
+      rightStrength > WINK_START_CLOSURE_GAP_THRESHOLD;
 
-    if (rightClosed && leftOpen && rightDominant) return isWinkMirrored ? "left" : "right";
-    if (leftClosed && rightOpen && leftDominant) return isWinkMirrored ? "right" : "left";
-    return "none";
+    const isLeftContinue =
+      leftNormalized < WINK_CONTINUE_CLOSED_RATIO_THRESHOLD &&
+      rightNormalized > WINK_CONTINUE_OTHER_EYE_OPEN_RATIO_THRESHOLD &&
+      leftStrength > WINK_CONTINUE_CLOSURE_GAP_THRESHOLD;
+    const isRightContinue =
+      rightNormalized < WINK_CONTINUE_CLOSED_RATIO_THRESHOLD &&
+      leftNormalized > WINK_CONTINUE_OTHER_EYE_OPEN_RATIO_THRESHOLD &&
+      rightStrength > WINK_CONTINUE_CLOSURE_GAP_THRESHOLD;
+
+    if (activeCandidate === "left" && isLeftContinue) {
+      return { eye: "left", direction: isWinkMirrored ? "right" : "left", strength: leftStrength };
+    }
+
+    if (activeCandidate === "right" && isRightContinue) {
+      return { eye: "right", direction: isWinkMirrored ? "left" : "right", strength: rightStrength };
+    }
+
+    if (isRightStart) {
+      return { eye: "right", direction: isWinkMirrored ? "left" : "right", strength: rightStrength };
+    }
+
+    if (isLeftStart) {
+      return { eye: "left", direction: isWinkMirrored ? "right" : "left", strength: leftStrength };
+    }
+
+    return { eye: "none", direction: "none", strength: 0 };
   };
 
   const areEyesRecovered = (leftEyeRatio: number, rightEyeRatio: number) => {
@@ -804,6 +905,49 @@ export default function Home() {
     const rightNormalized = rightEyeRatio / rightOpenBaseline;
 
     return leftNormalized >= RECOVERY_OPEN_RATIO_THRESHOLD && rightNormalized >= RECOVERY_OPEN_RATIO_THRESHOLD;
+  };
+
+  const areBothEyesClosed = (leftEyeRatio: number, rightEyeRatio: number) => {
+    const leftOpenBaseline = Math.max(leftEyeOpenRef.current, 0.0001);
+    const rightOpenBaseline = Math.max(rightEyeOpenRef.current, 0.0001);
+    const leftNormalized = leftEyeRatio / leftOpenBaseline;
+    const rightNormalized = rightEyeRatio / rightOpenBaseline;
+
+    return (
+      leftNormalized < BOTH_EYES_CLOSED_RATIO_THRESHOLD &&
+      rightNormalized < BOTH_EYES_CLOSED_RATIO_THRESHOLD &&
+      leftNormalized + rightNormalized < BOTH_EYES_CLOSED_COMBINED_THRESHOLD
+    );
+  };
+
+  const areBothEyesClearlyVisible = (landmarks: NormalizedLandmark[]) => {
+    const leftEyeOuter = landmarks[33];
+    const leftEyeInner = landmarks[133];
+    const rightEyeInner = landmarks[362];
+    const rightEyeOuter = landmarks[263];
+    const noseTip = landmarks[1];
+
+    const leftEyeWidth = Math.hypot(leftEyeOuter.x - leftEyeInner.x, leftEyeOuter.y - leftEyeInner.y);
+    const rightEyeWidth = Math.hypot(rightEyeOuter.x - rightEyeInner.x, rightEyeOuter.y - rightEyeInner.y);
+    const smallerEyeWidth = Math.min(leftEyeWidth, rightEyeWidth);
+    const largerEyeWidth = Math.max(leftEyeWidth, rightEyeWidth, 0.0001);
+    const eyeWidthBalance = smallerEyeWidth / largerEyeWidth;
+
+    const leftEyeCenterX = (leftEyeOuter.x + leftEyeInner.x) / 2;
+    const leftEyeCenterY = (leftEyeOuter.y + leftEyeInner.y) / 2;
+    const rightEyeCenterX = (rightEyeOuter.x + rightEyeInner.x) / 2;
+    const rightEyeCenterY = (rightEyeOuter.y + rightEyeInner.y) / 2;
+
+    const noseToLeftEye = Math.hypot(noseTip.x - leftEyeCenterX, noseTip.y - leftEyeCenterY);
+    const noseToRightEye = Math.hypot(noseTip.x - rightEyeCenterX, noseTip.y - rightEyeCenterY);
+    const smallerEyeCenterDistance = Math.min(noseToLeftEye, noseToRightEye);
+    const largerEyeCenterDistance = Math.max(noseToLeftEye, noseToRightEye, 0.0001);
+    const eyeCenterBalance = smallerEyeCenterDistance / largerEyeCenterDistance;
+
+    return (
+      eyeWidthBalance >= EYE_VISIBILITY_BALANCE_THRESHOLD &&
+      eyeCenterBalance >= EYE_CENTER_BALANCE_THRESHOLD
+    );
   };
 
   const canGoPrevious = currentPage > 1;
@@ -821,10 +965,12 @@ export default function Home() {
         ? "권한 필요"
         : "대기 중";
   const cameraButtonText = cameraEnabled
-    ? "카메라 중지"
+    ? "모션 감지 끄기"
     : cameraPermission === "denied"
-      ? "권한 다시 확인하기"
-      : "카메라 시작하기";
+      ? "모션 감지 권한 확인"
+      : "모션 감지 켜기";
+  const mirrorModeTitle = isWinkMirrored ? "전면카메라 기준" : "일반 카메라 기준";
+  const mirrorModeHint = isWinkMirrored ? "거울처럼 좌우를 해석" : "실제 좌우 그대로 해석";
 
   return (
     <main className={`app-shell ${isFocusMode ? "is-focus-mode" : ""}`}>
@@ -919,13 +1065,6 @@ export default function Home() {
           </button>
           <button
             type="button"
-            className={`secondary-button ${isCameraPreviewOpen ? "is-active" : ""}`}
-            onClick={() => setIsCameraPreviewOpen((prev) => !prev)}
-          >
-            카메라 보기 {isCameraPreviewOpen ? "끄기" : "켜기"}
-          </button>
-          <button
-            type="button"
             className="secondary-button"
                 onClick={() => setIsLibraryOpen((prev) => !prev)}
                 aria-expanded={isLibraryOpen}
@@ -942,29 +1081,12 @@ export default function Home() {
                 }}
                 aria-pressed={isWinkMirrored}
               >
-                인식 방향 바꾸기 {isWinkMirrored ? "ON" : "OFF"}
+                인식 방향: {mirrorModeTitle} ({mirrorModeHint})
               </button>
             </div>
           </div>
 
-          {isCameraPreviewOpen ? (
-            <div className="camera-preview compact-panel">
-              <div className="camera-preview-header">
-                <strong>카메라</strong>
-                <span>{isCameraReady ? "인식 중" : "대기 중"}</span>
-              </div>
-              <div className="camera-preview-frame">
-                <video ref={videoRef} autoPlay muted playsInline className="camera-feed" />
-                {!isCameraReady ? (
-                  <div className="camera-placeholder">
-                    <strong>대기 중</strong>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ) : (
-            <video ref={videoRef} autoPlay muted playsInline className="camera-feed-hidden" />
-          )}
+          <video ref={videoRef} autoPlay muted playsInline className="camera-feed-hidden" />
 
           {isLibraryOpen ? (
             <section className="saved-library" aria-label="저장된 악보 목록">
