@@ -118,7 +118,9 @@ export default function Home() {
   const [currentFileName, setCurrentFileName] = useState<string | null>(null);
   const [savedScores, setSavedScores] = useState<SavedScore[]>([]);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [isMotionGuideExpanded, setIsMotionGuideExpanded] = useState(true);
   const [isFocusMode, setIsFocusMode] = useState(false);
+  const [isFocusControlsVisible, setIsFocusControlsVisible] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [isWinkMirrored, setIsWinkMirrored] = useState(true);
   const [cameraPermission, setCameraPermission] = useState<"unknown" | "prompt" | "granted" | "denied">(
@@ -136,6 +138,7 @@ export default function Home() {
   const pdfDocRef = useRef<any>(null);
   const pageCountRef = useRef(0);
   const currentPageRef = useRef(1);
+  const currentFileNameRef = useRef<string | null>(null);
   const currentPdfBlobRef = useRef<Blob | null>(null);
   const currentSavedScoreIdRef = useRef<string | null>(null);
   const winkCandidateRef = useRef<"left" | "right" | "none">("none");
@@ -152,6 +155,7 @@ export default function Home() {
   const rightEyeOpenRef = useRef(0.24);
   const smoothedLeftEyeRef = useRef<number | null>(null);
   const smoothedRightEyeRef = useRef<number | null>(null);
+  const focusControlsTimeoutRef = useRef<number | null>(null);
 
   const loadPdfJs = async () => {
     if (window.pdfjsLib) {
@@ -176,7 +180,7 @@ export default function Home() {
   const saveSessionState = async (overrides?: Partial<SessionState>) => {
     const sessionState: SessionState = {
       pdfBlob: currentPdfBlobRef.current,
-      fileName: currentFileName,
+      fileName: currentFileNameRef.current,
       currentPage: currentPageRef.current,
       savedScoreId: currentSavedScoreIdRef.current,
       ...overrides,
@@ -214,6 +218,7 @@ export default function Home() {
     setPageCount(pdf.numPages);
     setCurrentPage(safeInitialPage);
     setCurrentFileName(fileName);
+    currentFileNameRef.current = fileName;
     pdfDocRef.current = pdf;
     pageCountRef.current = pdf.numPages;
     currentPageRef.current = safeInitialPage;
@@ -317,6 +322,19 @@ export default function Home() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!isFocusMode) {
+      setIsFocusControlsVisible(false);
+    }
+
+    return () => {
+      if (focusControlsTimeoutRef.current !== null) {
+        window.clearTimeout(focusControlsTimeoutRef.current);
+        focusControlsTimeoutRef.current = null;
+      }
+    };
+  }, [isFocusMode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -593,7 +611,8 @@ export default function Home() {
         initialPage: 1,
         savedScoreId: null,
       });
-      updateGestureText("PDF를 불러왔습니다.");
+      const saved = await persistCurrentPdf();
+      updateGestureText(saved ? "PDF를 불러오고 자동 저장했습니다." : "PDF를 불러왔습니다.");
     } catch (error) {
       updateGestureText("PDF 라이브러리 로드 실패");
       console.error("pdfjs load error", error);
@@ -658,15 +677,14 @@ export default function Home() {
     }
   };
 
-  const saveCurrentPdf = async () => {
+  const persistCurrentPdf = async () => {
     if (!currentPdfBlobRef.current) {
-      updateGestureText("먼저 PDF를 불러와 주세요.");
-      return;
+      return false;
     }
 
     const nextScore: SavedScore = {
       id: currentSavedScoreIdRef.current ?? crypto.randomUUID(),
-      name: currentFileName ?? `악보 ${savedScores.length + 1}`,
+      name: currentFileNameRef.current ?? `악보 ${savedScores.length + 1}`,
       pdfBlob: currentPdfBlobRef.current,
       currentPage: currentPageRef.current,
       updatedAt: Date.now(),
@@ -679,7 +697,7 @@ export default function Home() {
     currentSavedScoreIdRef.current = nextScore.id;
     await saveScoresToDb(nextScores);
     await saveSessionState({ savedScoreId: nextScore.id });
-    updateGestureText("현재 PDF를 저장했습니다.");
+    return true;
   };
 
   const openSavedScore = async (score: SavedScore) => {
@@ -736,6 +754,23 @@ export default function Home() {
     setHasCalibration(false);
     setIsCalibrating(true);
     updateGestureText("정면을 1초만 봐 주세요");
+  };
+
+  const revealFocusControls = () => {
+    if (!isFocusMode) {
+      return;
+    }
+
+    setIsFocusControlsVisible(true);
+
+    if (focusControlsTimeoutRef.current !== null) {
+      window.clearTimeout(focusControlsTimeoutRef.current);
+    }
+
+    focusControlsTimeoutRef.current = window.setTimeout(() => {
+      setIsFocusControlsVisible(false);
+      focusControlsTimeoutRef.current = null;
+    }, 2200);
   };
 
   const getPendingGestureText = (direction: "left" | "right", holdDuration: number) => {
@@ -971,19 +1006,80 @@ export default function Home() {
       : "모션 감지 켜기";
   const mirrorModeTitle = isWinkMirrored ? "전면카메라 기준" : "일반 카메라 기준";
   const mirrorModeHint = isWinkMirrored ? "거울처럼 좌우를 해석" : "실제 좌우 그대로 해석";
+  const viewerTitle = hasLoadedPdf ? `${currentFileName ?? "불러온 악보"} (${currentPage}/${pageCount})` : "악보";
+  const gestureOverlayText = (() => {
+    if (gestureText.includes("인식됨") || gestureText === "윙크 인식 중") {
+      return gestureText;
+    }
+
+    if (gestureText === "다음 페이지" || gestureText === "이전 페이지") {
+      return gestureText;
+    }
+
+    if (gestureText === "마지막 페이지" || gestureText === "첫 페이지") {
+      return gestureText;
+    }
+
+    return null;
+  })();
+  const motionGuideSection = (
+    <section className="motion-guide-card">
+      <button
+        type="button"
+        className="motion-guide-toggle"
+        onClick={() => setIsMotionGuideExpanded((prev) => !prev)}
+        aria-expanded={isMotionGuideExpanded}
+      >
+        <h3>사용법</h3>
+        <span className="motion-guide-toggle-text">{isMotionGuideExpanded ? "접기" : "펼치기"}</span>
+      </button>
+      {isMotionGuideExpanded ? (
+        <div className="motion-guide-content">
+          <ol className="motion-guide-list">
+            <li>
+              <span className="motion-guide-step">1.</span>
+              <div>
+                <strong>모션 감지 켜기</strong>
+                <span>상단 버튼을 눌러 카메라를 시작합니다.</span>
+              </div>
+            </li>
+            <li>
+              <span className="motion-guide-step">2.</span>
+              <div>
+                <strong>정면 보고 보정</strong>
+                <span>처음 켜면 잠깐 정면을 보고 보정을 진행해 주세요.</span>
+              </div>
+            </li>
+            <li>
+              <span className="motion-guide-step">3.</span>
+              <div>
+                <strong>오른쪽 윙크 0.3초 이상</strong>
+                <span className="motion-guide-result">다음 페이지</span>
+              </div>
+            </li>
+            <li>
+              <span className="motion-guide-step">4.</span>
+              <div>
+                <strong>왼쪽 윙크 0.3초 이상</strong>
+                <span className="motion-guide-result">이전 페이지</span>
+              </div>
+            </li>
+          </ol>
+        </div>
+      ) : null}
+    </section>
+  );
 
   return (
-    <main className={`app-shell ${isFocusMode ? "is-focus-mode" : ""}`}>
+    <main className={`app-shell ${isFocusMode ? "is-focus-mode" : ""} ${isFocusControlsVisible ? "show-focus-controls" : ""}`}>
       <header className="topbar">
-        <div className="brand-block">
-          <h1>Hands Free PDF Reader</h1>
-        </div>
-
         <div className="topbar-actions">
-          <label className="file-label compact-action">
-            PDF 불러오기
-            <input type="file" accept="application/pdf" onChange={onFileChange} />
-          </label>
+          <div className="topbar-primary-actions">
+            <label className="file-label primary-upload-action">
+              <strong>PDF 불러오기</strong>
+              <input type="file" accept="application/pdf" onChange={onFileChange} />
+            </label>
+          </div>
 
           <button
             type="button"
@@ -994,51 +1090,51 @@ export default function Home() {
             {cameraButtonText}
             <span>{cameraStatusText}</span>
           </button>
-          <button
-            type="button"
-            className={`secondary-button compact-action ${isFocusMode ? "is-active" : ""}`}
-            onClick={() => setIsFocusMode((prev) => !prev)}
-          >
-            {isFocusMode ? "전체보기 종료" : "악보 전체보기"}
-          </button>
         </div>
       </header>
 
-      <section className="status-strip" aria-label="현재 상태">
-        <div className="status-chip">
-          <span>악보</span>
-          <strong>{currentFileName ?? "없음"}</strong>
-        </div>
-        <div className="status-chip">
-          <span>페이지</span>
-          <strong>{pageText}</strong>
-        </div>
-        <div className="status-chip">
-          <span>안내</span>
-          <strong>{gestureText}</strong>
-        </div>
-      </section>
-
       {cameraPermission === "denied" ? <p className="permission-help">카메라 권한이 차단됨. 주소창에서 허용해 주세요.</p> : null}
 
+      <section className="panel-card compact-panel mobile-motion-guide">{motionGuideSection}</section>
+
       <section className="workspace-grid">
-        <div className="viewer-card">
+        <div className="viewer-card" onMouseMove={isFocusMode ? revealFocusControls : undefined}>
           <div className="viewer-toolbar">
-            <h2>악보</h2>
+            <div className="viewer-heading">
+              <h2>{viewerTitle}</h2>
+              {gestureOverlayText ? <span className="gesture-toolbar-text">{gestureOverlayText}</span> : null}
+            </div>
             <div className="page-buttons" aria-label="페이지 이동 버튼">
+              <button
+                type="button"
+                className="library-toggle-button"
+                onClick={() => setIsLibraryOpen((prev) => !prev)}
+                aria-expanded={isLibraryOpen}
+              >
+                저장된 악보 {isLibraryOpen ? "숨기기" : "보기"}
+              </button>
               <button type="button" onClick={() => queuePage(currentPage - 1)} disabled={!canGoPrevious}>
-                이전 페이지
+                <span aria-hidden="true">←</span>
+                <span className="sr-only">이전 페이지</span>
               </button>
               <button type="button" onClick={() => queuePage(currentPage + 1)} disabled={!canGoNext}>
-                다음 페이지
+                <span aria-hidden="true">→</span>
+                <span className="sr-only">다음 페이지</span>
               </button>
               <button type="button" onClick={() => setIsFocusMode((prev) => !prev)}>
-                {isFocusMode ? "전체보기 종료" : "전체보기"}
+                <span aria-hidden="true">{isFocusMode ? "⤡" : "⤢"}</span>
+                <span className="sr-only">{isFocusMode ? "전체보기 종료" : "전체보기"}</span>
               </button>
             </div>
           </div>
 
           <div className="pdf-viewer">
+            <button
+              type="button"
+              className="focus-controls-hit-area"
+              onClick={revealFocusControls}
+              aria-label="전체화면 컨트롤 보기"
+            />
             <canvas ref={canvasRef} />
             {!hasLoadedPdf ? (
               <div className="empty-viewer">
@@ -1052,24 +1148,13 @@ export default function Home() {
           <div className="panel-card compact-panel">
             <h2>옵션</h2>
             <div className="option-buttons">
-          <button type="button" className="secondary-button" onClick={saveCurrentPdf} disabled={!hasLoadedPdf}>
-            현재 PDF 저장
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={handleCalibrationReset}
-            disabled={!isCameraReady}
-          >
-            윙크 보정 다시하기
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-                onClick={() => setIsLibraryOpen((prev) => !prev)}
-                aria-expanded={isLibraryOpen}
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={handleCalibrationReset}
+                disabled={!isCameraReady}
               >
-                저장된 악보 {isLibraryOpen ? "숨기기" : "보기"}
+                윙크 보정 다시하기
               </button>
               <button
                 type="button"
@@ -1084,6 +1169,8 @@ export default function Home() {
                 인식 방향: {mirrorModeTitle} ({mirrorModeHint})
               </button>
             </div>
+
+            <div className="desktop-motion-guide">{motionGuideSection}</div>
           </div>
 
           <video ref={videoRef} autoPlay muted playsInline className="camera-feed-hidden" />
