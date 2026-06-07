@@ -1099,10 +1099,10 @@ export default function Home() {
 
       <section className="workspace-grid">
         <div className="viewer-card" onMouseMove={isFocusMode ? revealFocusControls : undefined}>
+          {gestureOverlayText ? <div className="gesture-overlay-text">{gestureOverlayText}</div> : null}
           <div className="viewer-toolbar">
             <div className="viewer-heading">
               <h2>{viewerTitle}</h2>
-              {gestureOverlayText ? <span className="gesture-toolbar-text">{gestureOverlayText}</span> : null}
             </div>
             <div className="page-buttons" aria-label="페이지 이동 버튼">
               <button
