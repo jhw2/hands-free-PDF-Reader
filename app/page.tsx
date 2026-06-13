@@ -920,9 +920,17 @@ export default function Home() {
             rightNormalized < BOTH_EYES_BLINK_RATIO_THRESHOLD &&
             normalizedGap <= BOTH_EYES_BLINK_SIMILARITY_GAP_MAX &&
             dominantWinkStrength <= BOTH_EYES_BLINK_DOMINANCE_MAX;
+          const calibratedOtherOpenBaseline = Math.min(
+            leftWinkProfileRef.current?.otherEyeOpenRatio ?? 1,
+            rightWinkProfileRef.current?.otherEyeOpenRatio ?? 1
+          );
+          const personalAsymOpenThreshold = Math.min(
+            BOTH_EYES_ASYMMETRIC_BLINK_OPEN_RATIO_THRESHOLD,
+            calibratedOtherOpenBaseline - 0.07
+          );
           const areBothEyesAsymmetricallyBlinking =
             moreClosedEyeNormalized < BOTH_EYES_ASYMMETRIC_BLINK_CLOSED_RATIO_THRESHOLD &&
-            moreOpenEyeNormalized < BOTH_EYES_ASYMMETRIC_BLINK_OPEN_RATIO_THRESHOLD &&
+            moreOpenEyeNormalized < personalAsymOpenThreshold &&
             leftNormalized + rightNormalized < BOTH_EYES_ASYMMETRIC_BLINK_COMBINED_THRESHOLD;
           const blinkMoreOpenEyeNormalized = moreOpenEyeNormalized;
           const blinkCombinedNormalized = leftNormalized + rightNormalized;
