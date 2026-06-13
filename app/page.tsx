@@ -17,7 +17,7 @@ const OPEN_CALIBRATION_NOISE_MAX = 0.075;
 const WINK_CALIBRATION_CLOSED_RATIO_MAX = 0.78;
 const WINK_CALIBRATION_OTHER_EYE_OPEN_MIN = 0.72;
 const WINK_CALIBRATION_STRENGTH_MIN = 0.12;
-const WINK_HOLD_DURATION_MS = 320;
+const WINK_HOLD_DURATION_MS = 250;
 const PAGE_TURN_COOLDOWN_MS = 1200;
 const EYE_RATIO_SMOOTHING_ALPHA = 0.55;
 const WINK_CANDIDATE_CLOSED_RATIO_THRESHOLD = 0.88;
@@ -59,6 +59,12 @@ const BOTH_EYES_ASYMMETRIC_BLINK_COMBINED_THRESHOLD = 1.58;
 const WINK_STABLE_FRAME_TARGET = 2;
 const WINK_CONFIRM_FRAME_TARGET = 2;
 const WINK_MISSING_FRAME_TOLERANCE = 4;
+const MOUTH_OPEN_RATIO_THRESHOLD = 0.36;
+const MOUTH_CLOSE_RATIO_THRESHOLD = 0.18;
+const MOUTH_HOLD_DURATION_MS = 500;
+const MOUTH_MIN_OPEN_MS = 120;
+const MOUTH_DOUBLE_TAP_WINDOW_MS = 600;
+const MOUTH_STABLE_FRAME_TARGET = 2;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -82,6 +88,14 @@ type WinkDirection = "left" | "right" | "none";
 type WinkPhase = "idle" | "candidate" | "tracking" | "waiting-open";
 type WinkSignalStage = "none" | "candidate" | "confirmed";
 type CalibrationStep = "idle" | "open" | "left-wink" | "right-wink";
+type MouthPhase = "idle" | "open" | "first-closed" | "waiting-close";
+
+type MouthDetectionState = {
+  phase: MouthPhase;
+  startedAt: number | null;
+  closedAt: number | null;
+  stableFrames: number;
+};
 
 type WinkDetectionState = {
   phase: WinkPhase;
@@ -293,6 +307,13 @@ export default function Home() {
   const savedCalibrationProfileRef = useRef<SavedWinkCalibrationProfile | null>(null);
   const smoothedLeftEyeRef = useRef<number | null>(null);
   const smoothedRightEyeRef = useRef<number | null>(null);
+  const smoothedMouthRef = useRef<number | null>(null);
+  const mouthStateRef = useRef<MouthDetectionState>({
+    phase: "idle",
+    startedAt: null,
+    closedAt: null,
+    stableFrames: 0,
+  });
   const focusControlsTimeoutRef = useRef<number | null>(null);
 
   const loadPdfJs = async () => {
@@ -798,6 +819,8 @@ export default function Home() {
       }
 
       faceMeshRef.current = null;
+      smoothedMouthRef.current = null;
+      mouthStateRef.current = { phase: "idle", startedAt: null, closedAt: null, stableFrames: 0 };
     };
 
     const initFaceMesh = async () => {
@@ -1091,6 +1114,54 @@ export default function Home() {
             }
 
             return;
+          }
+
+          {
+            const rawMouth = computeMouthOpenRatio(landmarks);
+            const mouthRatio = getSmoothedEyeRatio(smoothedMouthRef, rawMouth);
+            const mouthNow = performance.now();
+            const ms = mouthStateRef.current;
+            const idleState: MouthDetectionState = { phase: "idle", startedAt: null, closedAt: null, stableFrames: 0 };
+            if (ms.phase === "waiting-close") {
+              if (mouthRatio < MOUTH_CLOSE_RATIO_THRESHOLD) {
+                mouthStateRef.current = idleState;
+              }
+            } else if (ms.phase === "first-closed") {
+              if (mouthRatio > MOUTH_OPEN_RATIO_THRESHOLD) {
+                const nextFrames = ms.stableFrames + 1;
+                if (nextFrames >= MOUTH_STABLE_FRAME_TARGET) {
+                  handleGesture("left");
+                  mouthStateRef.current = { phase: "waiting-close", startedAt: null, closedAt: null, stableFrames: 0 };
+                } else {
+                  mouthStateRef.current = { ...ms, stableFrames: nextFrames };
+                }
+              } else if (ms.closedAt !== null && mouthNow - ms.closedAt > MOUTH_DOUBLE_TAP_WINDOW_MS) {
+                mouthStateRef.current = idleState;
+              } else {
+                if (ms.stableFrames > 0) mouthStateRef.current = { ...ms, stableFrames: 0 };
+              }
+            } else if (ms.phase === "open") {
+              if (mouthRatio < MOUTH_CLOSE_RATIO_THRESHOLD) {
+                const openDuration = ms.startedAt !== null ? mouthNow - ms.startedAt : 0;
+                if (openDuration >= MOUTH_MIN_OPEN_MS) {
+                  mouthStateRef.current = { phase: "first-closed", startedAt: ms.startedAt, closedAt: mouthNow, stableFrames: 0 };
+                } else {
+                  mouthStateRef.current = idleState;
+                }
+              } else if (ms.startedAt !== null && mouthNow - ms.startedAt >= MOUTH_HOLD_DURATION_MS) {
+                handleGesture("right");
+                mouthStateRef.current = { phase: "waiting-close", startedAt: null, closedAt: null, stableFrames: 0 };
+              }
+            } else {
+              if (mouthRatio > MOUTH_OPEN_RATIO_THRESHOLD) {
+                const nextFrames = ms.stableFrames + 1;
+                mouthStateRef.current = nextFrames >= MOUTH_STABLE_FRAME_TARGET
+                  ? { phase: "open", startedAt: mouthNow, closedAt: null, stableFrames: nextFrames }
+                  : { ...ms, stableFrames: nextFrames };
+              } else {
+                if (ms.stableFrames > 0) mouthStateRef.current = { ...ms, stableFrames: 0 };
+              }
+            }
           }
 
           if (isForwardEnoughForWink) {
@@ -1712,6 +1783,16 @@ export default function Home() {
     }
 
     return vertical / horizontal;
+  };
+
+  const computeMouthOpenRatio = (landmarks: NormalizedLandmark[]) => {
+    const leftCorner = landmarks[61];
+    const rightCorner = landmarks[291];
+    const width = Math.hypot(rightCorner.x - leftCorner.x, rightCorner.y - leftCorner.y);
+    if (width === 0) return 0;
+    const upper = landmarks[13];
+    const lower = landmarks[14];
+    return Math.hypot(upper.x - lower.x, upper.y - lower.y) / width;
   };
 
   const getSmoothedEyeRatio = (targetRef: React.MutableRefObject<number | null>, nextValue: number) => {
