@@ -14,22 +14,22 @@ const WINK_CALIBRATION_PROFILE_KEY = "wink-calibration-profile";
 const OPEN_CALIBRATION_SAMPLE_TARGET = 18;
 const WINK_CALIBRATION_SAMPLE_TARGET = 12;
 const OPEN_CALIBRATION_NOISE_MAX = 0.075;
-const WINK_CALIBRATION_CLOSED_RATIO_MAX = 0.92;
-const WINK_CALIBRATION_OTHER_EYE_OPEN_MIN = 0.58;
-const WINK_CALIBRATION_STRENGTH_MIN = 0.06;
+const WINK_CALIBRATION_CLOSED_RATIO_MAX = 0.78;
+const WINK_CALIBRATION_OTHER_EYE_OPEN_MIN = 0.72;
+const WINK_CALIBRATION_STRENGTH_MIN = 0.12;
 const WINK_HOLD_DURATION_MS = 320;
 const PAGE_TURN_COOLDOWN_MS = 1200;
-const EYE_RATIO_SMOOTHING_ALPHA = 0.7;
+const EYE_RATIO_SMOOTHING_ALPHA = 0.55;
 const WINK_CANDIDATE_CLOSED_RATIO_THRESHOLD = 0.88;
 const WINK_CANDIDATE_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.72;
 const WINK_CANDIDATE_CLOSURE_GAP_THRESHOLD = 0.08;
 const WINK_CONFIRM_CLOSED_RATIO_THRESHOLD = 0.82;
-const WINK_CONFIRM_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.84;
-const WINK_CONFIRM_CLOSURE_GAP_THRESHOLD = 0.18;
+const WINK_CONFIRM_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.74;
+const WINK_CONFIRM_CLOSURE_GAP_THRESHOLD = 0.12;
 const WINK_CONTINUE_CLOSED_RATIO_THRESHOLD = 0.84;
 const WINK_CONTINUE_OTHER_EYE_OPEN_RATIO_THRESHOLD = 0.72;
 const WINK_CONTINUE_CLOSURE_GAP_THRESHOLD = 0.12;
-const WINK_MIN_PEAK_STRENGTH = 0.18;
+const WINK_MIN_PEAK_STRENGTH = 0.12;
 const BOTH_EYES_CLOSED_RATIO_THRESHOLD = 0.86;
 const BOTH_EYES_CLOSED_COMBINED_THRESHOLD = 1.72;
 const RECOVERY_OPEN_RATIO_THRESHOLD = 0.84;
@@ -41,25 +41,24 @@ const CALIBRATION_FORWARD_NOSE_X_MAX = 0.16;
 const CALIBRATION_FORWARD_NOSE_Y_MAX = 0.38;
 const CALIBRATION_EYE_DISTANCE_MIN = 0.035;
 const ACTIVE_FORWARD_TILT_MAX = 0.11;
-const ACTIVE_FORWARD_NOSE_X_MAX = 0.14;
+const ACTIVE_FORWARD_NOSE_X_MAX = 0.20;
 const ACTIVE_FORWARD_NOSE_Y_MAX = 0.4;
 const ACTIVE_FORWARD_EYE_DISTANCE_MIN = 0.04;
-const ACTIVE_FORWARD_EYE_WIDTH_BALANCE_MIN = 0.62;
-const ACTIVE_FORWARD_EYE_CENTER_BALANCE_MIN = 0.58;
+const HEAD_TURN_EYE_BALANCE_THRESHOLD = 0.55;
 const FORWARD_STABLE_FRAME_TARGET = 2;
 const REARM_OPEN_FRAME_TARGET = 3;
 const BOTH_EYES_SIMILARITY_GAP_THRESHOLD = 0.025;
 const BOTH_EYES_PARTIAL_CLOSED_THRESHOLD = 0.82;
 const BOTH_EYES_DOMINANCE_STRENGTH_MAX = 0.1;
-const BOTH_EYES_BLINK_RATIO_THRESHOLD = 0.9;
+const BOTH_EYES_BLINK_RATIO_THRESHOLD = 0.84;
 const BOTH_EYES_BLINK_SIMILARITY_GAP_MAX = 0.16;
 const BOTH_EYES_BLINK_DOMINANCE_MAX = 0.18;
 const BOTH_EYES_ASYMMETRIC_BLINK_CLOSED_RATIO_THRESHOLD = 0.82;
-const BOTH_EYES_ASYMMETRIC_BLINK_OPEN_RATIO_THRESHOLD = 0.9;
-const BOTH_EYES_ASYMMETRIC_BLINK_COMBINED_THRESHOLD = 1.68;
+const BOTH_EYES_ASYMMETRIC_BLINK_OPEN_RATIO_THRESHOLD = 0.80;
+const BOTH_EYES_ASYMMETRIC_BLINK_COMBINED_THRESHOLD = 1.58;
 const WINK_STABLE_FRAME_TARGET = 2;
 const WINK_CONFIRM_FRAME_TARGET = 2;
-const WINK_MISSING_FRAME_TOLERANCE = 2;
+const WINK_MISSING_FRAME_TOLERANCE = 4;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -899,50 +898,34 @@ export default function Home() {
           const isForwardEnoughForCalibration = isFaceForwardEnoughForCalibration(landmarks);
           const leftOpenBaseline = Math.max(leftEyeOpenRef.current, 0.0001);
           const rightOpenBaseline = Math.max(rightEyeOpenRef.current, 0.0001);
-          const rawLeftNormalized = rawLeftEyeRatio / leftOpenBaseline;
-          const rawRightNormalized = rawRightEyeRatio / rightOpenBaseline;
           const leftNormalized = leftEyeRatio / leftOpenBaseline;
           const rightNormalized = rightEyeRatio / rightOpenBaseline;
           const leftClosure = 1 - leftNormalized;
           const rightClosure = 1 - rightNormalized;
           const leftStrength = leftClosure - rightClosure;
           const rightStrength = rightClosure - leftClosure;
-          const rawNormalizedGap = Math.abs(rawLeftNormalized - rawRightNormalized);
-          const rawDominantWinkStrength = rawNormalizedGap;
           const normalizedGap = Math.abs(leftNormalized - rightNormalized);
           const dominantWinkStrength = Math.max(leftStrength, rightStrength);
           const isOneEyeClearlyDominant = dominantWinkStrength > BOTH_EYES_DOMINANCE_STRENGTH_MAX;
           const bothEyesSimilarClosure = normalizedGap <= BOTH_EYES_SIMILARITY_GAP_THRESHOLD;
           const moreClosedEyeNormalized = Math.min(leftNormalized, rightNormalized);
           const moreOpenEyeNormalized = Math.max(leftNormalized, rightNormalized);
-          const rawMoreClosedEyeNormalized = Math.min(rawLeftNormalized, rawRightNormalized);
-          const rawMoreOpenEyeNormalized = Math.max(rawLeftNormalized, rawRightNormalized);
           const areBothEyesPartiallyClosed =
             leftNormalized < BOTH_EYES_PARTIAL_CLOSED_THRESHOLD &&
             rightNormalized < BOTH_EYES_PARTIAL_CLOSED_THRESHOLD &&
             bothEyesSimilarClosure &&
             !isOneEyeClearlyDominant;
           const areBothEyesBlinking =
-            (leftNormalized < BOTH_EYES_BLINK_RATIO_THRESHOLD &&
-              rightNormalized < BOTH_EYES_BLINK_RATIO_THRESHOLD &&
-              normalizedGap <= BOTH_EYES_BLINK_SIMILARITY_GAP_MAX &&
-              dominantWinkStrength <= BOTH_EYES_BLINK_DOMINANCE_MAX) ||
-            (rawLeftNormalized < BOTH_EYES_BLINK_RATIO_THRESHOLD &&
-              rawRightNormalized < BOTH_EYES_BLINK_RATIO_THRESHOLD &&
-              rawNormalizedGap <= BOTH_EYES_BLINK_SIMILARITY_GAP_MAX &&
-              rawDominantWinkStrength <= BOTH_EYES_BLINK_DOMINANCE_MAX);
+            leftNormalized < BOTH_EYES_BLINK_RATIO_THRESHOLD &&
+            rightNormalized < BOTH_EYES_BLINK_RATIO_THRESHOLD &&
+            normalizedGap <= BOTH_EYES_BLINK_SIMILARITY_GAP_MAX &&
+            dominantWinkStrength <= BOTH_EYES_BLINK_DOMINANCE_MAX;
           const areBothEyesAsymmetricallyBlinking =
-            (moreClosedEyeNormalized < BOTH_EYES_ASYMMETRIC_BLINK_CLOSED_RATIO_THRESHOLD &&
-              moreOpenEyeNormalized < BOTH_EYES_ASYMMETRIC_BLINK_OPEN_RATIO_THRESHOLD &&
-              leftNormalized + rightNormalized < BOTH_EYES_ASYMMETRIC_BLINK_COMBINED_THRESHOLD) ||
-            (rawMoreClosedEyeNormalized < BOTH_EYES_ASYMMETRIC_BLINK_CLOSED_RATIO_THRESHOLD &&
-              rawMoreOpenEyeNormalized < BOTH_EYES_ASYMMETRIC_BLINK_OPEN_RATIO_THRESHOLD &&
-              rawLeftNormalized + rawRightNormalized < BOTH_EYES_ASYMMETRIC_BLINK_COMBINED_THRESHOLD);
-          const blinkMoreOpenEyeNormalized = Math.min(moreOpenEyeNormalized, rawMoreOpenEyeNormalized);
-          const blinkCombinedNormalized = Math.min(
-            leftNormalized + rightNormalized,
-            rawLeftNormalized + rawRightNormalized
-          );
+            moreClosedEyeNormalized < BOTH_EYES_ASYMMETRIC_BLINK_CLOSED_RATIO_THRESHOLD &&
+            moreOpenEyeNormalized < BOTH_EYES_ASYMMETRIC_BLINK_OPEN_RATIO_THRESHOLD &&
+            leftNormalized + rightNormalized < BOTH_EYES_ASYMMETRIC_BLINK_COMBINED_THRESHOLD;
+          const blinkMoreOpenEyeNormalized = moreOpenEyeNormalized;
+          const blinkCombinedNormalized = leftNormalized + rightNormalized;
           const winkState = winkStateRef.current;
           const winkSignal = computeWink(leftEyeRatio, rightEyeRatio, winkState.eye);
           const hasStrongWinkSignal = winkSignal.stage === "confirmed";
@@ -1110,7 +1093,7 @@ export default function Home() {
 
           if (
             areBothEyesBlinking ||
-            areBothEyesAsymmetricallyBlinking ||
+            (!hasStrongWinkSignal && areBothEyesAsymmetricallyBlinking) ||
             (!hasStrongWinkSignal && areBothEyesClosed(leftEyeRatio, rightEyeRatio, dominantWinkStrength, normalizedGap)) ||
             (!hasStrongWinkSignal && areBothEyesPartiallyClosed)
           ) {
@@ -1328,6 +1311,21 @@ export default function Home() {
           }
 
           if (!isTrackingWink || winkState.eye !== winkSignal.eye) {
+            const { isSuspicious, eyeWidthBalance } = isWinkEyeSuspicious(winkSignal.eye as "left" | "right", landmarks);
+            if (isSuspicious) {
+              resetWinkState();
+              updateWinkDebug({
+                status: "실패: 고개 회전 의심",
+                detail: `${winkSignal.eye === "left" ? "왼쪽" : "오른쪽"} 눈이 더 좁은 눈(균형 ${eyeWidthBalance.toFixed(2)})과 일치해 고개 회전으로 인한 오인식으로 판단했습니다.`,
+                trackingPhase: "idle",
+                trackingEye: "none",
+                stableFrames: 0,
+                confirmedFrames: 0,
+                openFrames: 0,
+              });
+              updateGestureText("고개를 정면으로 맞춰 주세요");
+              return;
+            }
             const nextPhase: WinkPhase = winkSignal.stage === "confirmed" ? "tracking" : "candidate";
             winkStateRef.current = {
               phase: nextPhase,
@@ -1744,6 +1742,8 @@ export default function Home() {
     const eyeCenterBalance = smallerEyeCenterDistance / largerEyeCenterDistance;
 
     return {
+      leftEyeWidth,
+      rightEyeWidth,
       eyeWidthBalance,
       eyeCenterBalance,
     };
@@ -1778,15 +1778,12 @@ export default function Home() {
     const noseOffsetX = Math.abs(noseTip.x - eyeCenterX);
     const noseOffsetY = Math.abs(noseTip.y - eyeCenterY);
     const eyeDistanceX = Math.abs(rightEyeOuter.x - leftEyeOuter.x);
-    const { eyeWidthBalance, eyeCenterBalance } = getEyeVisibilityMetrics(landmarks);
 
     return (
       eyeLineTilt < ACTIVE_FORWARD_TILT_MAX &&
       noseOffsetX < ACTIVE_FORWARD_NOSE_X_MAX &&
       noseOffsetY < ACTIVE_FORWARD_NOSE_Y_MAX &&
-      eyeDistanceX > ACTIVE_FORWARD_EYE_DISTANCE_MIN &&
-      eyeWidthBalance >= ACTIVE_FORWARD_EYE_WIDTH_BALANCE_MIN &&
-      eyeCenterBalance >= ACTIVE_FORWARD_EYE_CENTER_BALANCE_MIN
+      eyeDistanceX > ACTIVE_FORWARD_EYE_DISTANCE_MIN
     );
   };
 
@@ -1822,11 +1819,11 @@ export default function Home() {
         candidateOtherOpen: clamp(profile.otherEyeOpenRatio - 0.1 - otherNoise * 0.5, 0.74, 0.9),
         candidateGap: clamp(profile.strength * 0.35, 0.05, 0.18),
         confirmClosed: clamp(profile.closedRatio + Math.max(0.06, profileNoise * 1.4), 0.66, 0.9),
-        confirmOtherOpen: clamp(profile.otherEyeOpenRatio - 0.04 - otherNoise * 0.4, 0.82, 0.94),
+        confirmOtherOpen: clamp(profile.otherEyeOpenRatio - 0.12 - otherNoise * 0.4, 0.72, 0.90),
         confirmGap: clamp(profile.strength * 0.55, 0.07, 0.24),
-        continueClosed: clamp(profile.closedRatio + Math.max(0.1, profileNoise * 1.8), 0.7, 0.92),
-        continueOtherOpen: clamp(profile.otherEyeOpenRatio - 0.1 - otherNoise * 0.5, 0.74, 0.9),
-        continueGap: clamp(profile.strength * 0.32, 0.05, 0.18),
+        continueClosed: clamp(profile.closedRatio + Math.max(0.18, profileNoise * 2.0), 0.7, 0.93),
+        continueOtherOpen: clamp(profile.otherEyeOpenRatio - 0.20 - otherNoise * 0.5, 0.62, 0.9),
+        continueGap: clamp(profile.strength * 0.20, 0.03, 0.14),
       };
     }
 
@@ -1837,9 +1834,9 @@ export default function Home() {
       confirmClosed: clamp(WINK_CONFIRM_CLOSED_RATIO_THRESHOLD - targetNoise * 0.4, 0.74, 0.84),
       confirmOtherOpen: clamp(WINK_CONFIRM_OTHER_EYE_OPEN_RATIO_THRESHOLD - otherNoise * 0.6, 0.84, 0.88),
       confirmGap: clamp(WINK_CONFIRM_CLOSURE_GAP_THRESHOLD + combinedNoise * 0.8, 0.18, 0.28),
-      continueClosed: clamp(WINK_CONTINUE_CLOSED_RATIO_THRESHOLD - targetNoise * 0.7, 0.76, 0.86),
-      continueOtherOpen: clamp(WINK_CONTINUE_OTHER_EYE_OPEN_RATIO_THRESHOLD - otherNoise * 0.8, 0.74, 0.8),
-      continueGap: clamp(WINK_CONTINUE_CLOSURE_GAP_THRESHOLD + combinedNoise * 0.8, 0.1, 0.2),
+      continueClosed: clamp(WINK_CONTINUE_CLOSED_RATIO_THRESHOLD - targetNoise * 0.7, 0.76, 0.88),
+      continueOtherOpen: clamp(WINK_CONTINUE_OTHER_EYE_OPEN_RATIO_THRESHOLD - otherNoise * 0.8, 0.64, 0.8),
+      continueGap: clamp(WINK_CONTINUE_CLOSURE_GAP_THRESHOLD + combinedNoise * 0.8, 0.06, 0.17),
     };
   };
 
@@ -1979,6 +1976,16 @@ export default function Home() {
       eyeWidthBalance >= EYE_VISIBILITY_BALANCE_THRESHOLD &&
       eyeCenterBalance >= EYE_CENTER_BALANCE_THRESHOLD
     );
+  };
+
+  // 고개 회전으로 인한 오인식 방지: 감지된 눈이 더 좁은 눈이고 균형 비율이 낮으면 오인식으로 판단
+  const isWinkEyeSuspicious = (winkEye: "left" | "right", landmarks: NormalizedLandmark[]) => {
+    const { leftEyeWidth, rightEyeWidth, eyeWidthBalance } = getEyeVisibilityMetrics(landmarks);
+    if (eyeWidthBalance >= HEAD_TURN_EYE_BALANCE_THRESHOLD) {
+      return { isSuspicious: false, eyeWidthBalance };
+    }
+    const narrowerEye: "left" | "right" = leftEyeWidth < rightEyeWidth ? "left" : "right";
+    return { isSuspicious: winkEye === narrowerEye, eyeWidthBalance };
   };
 
   const canGoPrevious = currentPage > 1;
