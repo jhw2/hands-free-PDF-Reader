@@ -145,88 +145,6 @@ p {
   background: rgba(89, 35, 35, 0.88);
 }
 
-.calibration-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background:
-    radial-gradient(circle at 50% 28%, rgba(116, 196, 255, 0.16), transparent 34%),
-    rgba(5, 8, 13, 0.82);
-  backdrop-filter: blur(14px);
-}
-
-.calibration-card {
-  width: min(560px, 100%);
-  padding: clamp(28px, 6vw, 52px);
-  border: 1px solid rgba(191, 228, 255, 0.2);
-  border-radius: 18px;
-  background: rgba(13, 18, 27, 0.94);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
-  text-align: center;
-}
-
-.calibration-step-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 30px;
-  padding: 0 12px;
-  border-radius: 999px;
-  background: rgba(116, 196, 255, 0.12);
-  color: #bfe4ff;
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-
-.calibration-card h2 {
-  margin-top: 18px;
-  font-size: 3.2rem;
-  line-height: 1.05;
-}
-
-.calibration-instruction {
-  margin: 18px auto 0;
-  max-width: 430px;
-  color: #e9f3ff;
-  font-size: 1.2rem;
-  line-height: 1.5;
-}
-
-.calibration-feedback {
-  min-height: 46px;
-  margin: 18px auto 0;
-  max-width: 440px;
-  color: #9fb0c6;
-  font-size: 0.98rem;
-  line-height: 1.45;
-}
-
-.calibration-progress-track {
-  height: 8px;
-  margin-top: 24px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.calibration-progress-bar {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #74c4ff, #bfe4ff);
-  transition: width 0.18s ease;
-}
-
-.calibration-progress-label {
-  display: block;
-  margin-top: 10px;
-  color: #bfe4ff;
-  font-size: 0.86rem;
-  font-weight: 700;
-}
-
 .workspace-grid {
   min-height: 0;
   display: grid;
@@ -501,49 +419,6 @@ p {
   gap: 8px;
 }
 
-.wink-debug-panel {
-  display: grid;
-  gap: 10px;
-}
-
-.wink-debug-status {
-  color: #dff0ff;
-  font-size: 0.95rem;
-  font-weight: 700;
-}
-
-.wink-debug-detail {
-  color: #9fb0c6;
-  font-size: 0.84rem;
-  line-height: 1.45;
-}
-
-.wink-debug-grid {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.wink-debug-grid div {
-  padding: 9px 10px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.wink-debug-grid dt {
-  color: #92a3b8;
-  font-size: 0.72rem;
-}
-
-.wink-debug-grid dd {
-  margin: 4px 0 0;
-  color: #f4f7fb;
-  font-size: 0.88rem;
-  font-weight: 600;
-}
-
 .camera-feed-hidden {
   position: fixed;
   top: -9999px;
@@ -697,22 +572,6 @@ p {
 @media (max-width: 720px) {
   .app-shell {
     padding: 12px;
-  }
-
-  .calibration-overlay {
-    padding: 16px;
-  }
-
-  .calibration-card {
-    padding: 28px 20px;
-  }
-
-  .calibration-card h2 {
-    font-size: 2.2rem;
-  }
-
-  .calibration-instruction {
-    font-size: 1.05rem;
   }
 
   .viewer-toolbar {
